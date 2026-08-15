@@ -917,10 +917,17 @@ export class AkerDockClient {
     return this.request<Response>('POST', '/private-keys', { body });
   }
 
-  getPrivateKey(uuid: string, query?: { reveal?: boolean }) {
+  /** ADR-075: server-side ed25519 generation — the response carries the public key only. */
+  generatePrivateKey(body: components['schemas']['PrivateKeyGenerate']) {
+    type Response =
+      paths['/private-keys/generate']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', '/private-keys/generate', { body });
+  }
+
+  getPrivateKey(uuid: string) {
     type Response =
       paths['/private-keys/{private_key_uuid}']['get']['responses']['200']['content']['application/json'];
-    return this.request<Response>('GET', `/private-keys/${uuid}`, { query });
+    return this.request<Response>('GET', `/private-keys/${uuid}`);
   }
 
   updatePrivateKey(uuid: string, version: number, body: components['schemas']['PrivateKeyUpdate']) {

@@ -21,4 +21,16 @@ links:
 | DNS credentials | Wildcard certificates through the DNS-01 challenge |
 | S3 storages | Backup destinations — verified before use, and flagged when they stop working |
 
-> **Note** — Members may add GitHub Apps, registries and S3 storages (`sources:manage`), but never read a private key back: key material needs `keys:reveal`.
+> **Note** — Members may add GitHub Apps, registries and S3 storages (`sources:manage`), but nobody reads a private key back — not even root. Once a key enters AkerDock, only its public half is ever served.
+
+## Private keys never leave
+
+A private key enters AkerDock by paste or by **Generate**, which creates an ed25519 keypair
+inside the platform. Either way the private half is stored encrypted and is write-only from
+then on: there is no reveal, whatever your permissions. This is deliberate — the only
+consumer of that material is AkerDock's own SSH connection, so keep your own copy at
+generation time if you need one elsewhere; the platform is not an escrow. What every key
+serves is its public half: one line ready for the server's `authorized_keys`, shown in the
+generation banner with a copy button and unfoldable on any row with the key-shaped button.
+Replacing a key's material (rotation) is still a write, and the new material is no more
+readable than the old.

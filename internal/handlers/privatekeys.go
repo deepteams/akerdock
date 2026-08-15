@@ -14,19 +14,18 @@ import (
 	"github.com/deepteams/akerdock/internal/store"
 )
 
-// privateKeyToAPI renders key metadata. revealed carries the decrypted
-// material only when INV-003 allows it (read:sensitive AND reveal=true).
-// inUse tells whether a server or an application's deploy key references the
-// key — a key in use cannot be deleted (§19.2).
-func privateKeyToAPI(k store.PrivateKey, revealed *string, inUse bool) api.PrivateKey {
+// privateKeyToAPI renders key metadata and the public half — the whole of
+// what the API ever serves about a key: private material is write-only for
+// the platform's own SSH use (ADR-075). inUse tells whether a server or an
+// application's deploy key references the key — a key in use cannot be
+// deleted (§19.2).
+func privateKeyToAPI(k store.PrivateKey, inUse bool) api.PrivateKey {
 	return api.PrivateKey{
 		Uuid:        ptr(uuidString(k.Uuid)),
 		Name:        k.Name,
 		Description: k.Description,
 		Fingerprint: ptr(k.FingerprintSha256),
 		PublicKey:   ptr(k.PublicKey),
-		PrivateKey:  revealed,
-		IsRedacted:  ptr(revealed == nil),
 		InUse:       ptr(inUse),
 		Version:     ptr(int(k.Version)),
 		CreatedAt:   timePtr(k.CreatedAt),
@@ -62,8 +61,8 @@ func (a *API) resolvePrivateKey(w http.ResponseWriter, r *http.Request, id *auth
 	return resolveRow(a, w, r, "private key", key, err)
 }
 
-// ListPrivateKeys implements GET /private-keys (permission: read). The
-// private material is always null in lists, whatever the permission.
+// ListPrivateKeys implements GET /private-keys (permission: read).
+// Metadata and public halves only, like every key response (ADR-075).
 func (a *API) ListPrivateKeys(w http.ResponseWriter, r *http.Request, params api.ListPrivateKeysParams) {
 	id, ok := a.require(w, r, auth.PermKeysRead)
 	if !ok {
@@ -93,7 +92,7 @@ func (a *API) ListPrivateKeys(w http.ResponseWriter, r *http.Request, params api
 	used := a.keysInUse(r, ids)
 	data := make([]api.PrivateKey, 0, len(rows))
 	for _, k := range rows {
-		data = append(data, privateKeyToAPI(k, nil, used[k.ID]))
+		data = append(data, privateKeyToAPI(k, used[k.ID]))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data       []api.PrivateKey `json:"data"`
@@ -153,13 +152,64 @@ func (a *API) CreatePrivateKey(w http.ResponseWriter, r *http.Request, params ap
 		return
 	}
 	w.Header().Set("ETag", etagFor(key.Version))
-	httpapi.WriteJSON(w, http.StatusCreated, privateKeyToAPI(key, nil, false))
+	httpapi.WriteJSON(w, http.StatusCreated, privateKeyToAPI(key, false))
+}
+
+// GeneratePrivateKey implements POST /private-keys/generate (permission:
+// write). ADR-075: the keypair is born inside the platform — ed25519, no
+// algorithm choice — so the private half never exists anywhere else at all.
+// The response carries the public key, ready for a server's authorized_keys.
+func (a *API) GeneratePrivateKey(w http.ResponseWriter, r *http.Request, params api.GeneratePrivateKeyParams) {
+	id, ok := a.require(w, r, auth.PermKeysManage)
+	if !ok {
+		return
+	}
+	var body api.PrivateKeyGenerate
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return
+	}
+	if body.Name == "" || len(body.Name) > 255 {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{Field: ptr("name"), Code: ptr("required"), Message: "name must be non-empty and at most 255 characters"}})
+		return
+	}
+
+	material, err := sshkey.GenerateEd25519(body.Name)
+	if err != nil {
+		a.internalError(w, r, "generate private key", err)
+		return
+	}
+	u, err := pguuid.New()
+	if err != nil {
+		a.internalError(w, r, "generate private key", err)
+		return
+	}
+	enc, err := a.Keyring.Encrypt("private_keys", "private_key_enc", pguuid.String(u), []byte(material.PrivatePEM))
+	if err != nil {
+		a.internalError(w, r, "generate private key", err)
+		return
+	}
+	key, err := a.Store.CreatePrivateKey(r.Context(), store.CreatePrivateKeyParams{
+		Uuid: u, TeamID: ptr(id.TeamID), Name: body.Name, Description: body.Description,
+		FingerprintSha256: material.Fingerprint, PublicKey: material.PublicKey, PrivateKeyEnc: enc,
+	})
+	if err != nil {
+		if isUniqueViolation(err) {
+			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "a key with the same fingerprint already exists in this team")
+			return
+		}
+		a.internalError(w, r, "generate private key", err)
+		return
+	}
+	w.Header().Set("ETag", etagFor(key.Version))
+	httpapi.WriteJSON(w, http.StatusCreated, privateKeyToAPI(key, false))
 }
 
 // GetPrivateKey implements GET /private-keys/{uuid} (permission: read).
-// INV-003: the material is revealed only with read:sensitive AND an
-// explicit reveal=true; the revelation is audited.
-func (a *API) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid api.PrivateKeyUuid, params api.GetPrivateKeyParams) {
+// There is no reveal: once a key enters the platform its private material
+// never leaves it, whatever the permission — only the public half is served
+// (ADR-075).
+func (a *API) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid api.PrivateKeyUuid) {
 	id, ok := a.require(w, r, auth.PermKeysRead)
 	if !ok {
 		return
@@ -168,24 +218,8 @@ func (a *API) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUu
 	if !ok {
 		return
 	}
-
-	var revealed *string
-	if params.Reveal != nil && *params.Reveal {
-		if !auth.Has(id.Permissions, auth.PermReadSensitive) {
-			httpapi.WriteError(w, r, http.StatusForbidden, httpapi.CodeForbidden, "revealing key material requires the read:sensitive permission")
-			return
-		}
-		plaintext, err := a.Keyring.Decrypt("private_keys", "private_key_enc", uuidString(key.Uuid), key.PrivateKeyEnc)
-		if err != nil {
-			a.internalError(w, r, "decrypt private key", err)
-			return
-		}
-		revealed = ptr(string(plaintext))
-		a.recordAudit(r, id, "secret.reveal", "private_key", key.Uuid)
-		a.Logger.Info("private key revealed", "key_uuid", uuidString(key.Uuid), "token_uuid", id.TokenUUID)
-	}
 	w.Header().Set("ETag", etagFor(key.Version))
-	httpapi.WriteJSON(w, http.StatusOK, privateKeyToAPI(key, revealed, a.keysInUse(r, []int64{key.ID})[key.ID]))
+	httpapi.WriteJSON(w, http.StatusOK, privateKeyToAPI(key, a.keysInUse(r, []int64{key.ID})[key.ID]))
 }
 
 // UpdatePrivateKey implements PATCH /private-keys/{uuid} (permission:
@@ -265,7 +299,7 @@ func (a *API) UpdatePrivateKey(w http.ResponseWriter, r *http.Request, privateKe
 		return
 	}
 	w.Header().Set("ETag", etagFor(updated.Version))
-	httpapi.WriteJSON(w, http.StatusOK, privateKeyToAPI(updated, nil, a.keysInUse(r, []int64{updated.ID})[updated.ID]))
+	httpapi.WriteJSON(w, http.StatusOK, privateKeyToAPI(updated, a.keysInUse(r, []int64{updated.ID})[updated.ID]))
 }
 
 // DeletePrivateKey implements DELETE /private-keys/{uuid} (permission:

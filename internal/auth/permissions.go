@@ -159,8 +159,10 @@ var Catalog = map[string]Permission{
 	// Servers & proxy
 	"servers:read": PermRead, "servers:manage": PermWrite,
 	"servers:maintain": PermWrite, "servers:proxy": PermWrite,
-	// SSH keys
-	"keys:read": PermRead, "keys:reveal": PermReadSensitive, "keys:manage": PermWrite,
+	// SSH keys. No keys:reveal: once a private key enters the platform it is
+	// never readable again, whatever the permission — only the public half is
+	// served (ADR-075).
+	"keys:read": PermRead, "keys:manage": PermWrite,
 	// Certificates
 	"certificates:read": PermRead, "certificates:renew": PermWrite,
 	// Git sources & registries

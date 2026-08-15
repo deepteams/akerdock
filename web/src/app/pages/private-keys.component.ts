@@ -55,8 +55,8 @@ type PrivateKey = components['schemas']['PrivateKey'];
               required
             ></textarea>
             <span class="akd-field__hint">
-              Stored encrypted. The private material is not echoed back on creation — reveal it
-              later only with the read:sensitive permission.
+              Stored encrypted. Once a key enters AkerDock its private material can never be
+              read back — only the public key is served.
             </span>
           </div>
           <div>
@@ -65,6 +65,51 @@ type PrivateKey = components['schemas']['PrivateKey'];
               Add key
             </button>
           </div>
+        </form>
+      </akd-card>
+
+      <akd-card title="Generate a key" class="create">
+        <form class="fields" (ngSubmit)="generate()">
+          <div class="akd-field">
+            <label class="akd-field__label" for="pk-gen-name">Name</label>
+            <input
+              id="pk-gen-name"
+              name="genName"
+              class="akd-input akd-input--mono"
+              placeholder="e.g. prod-cluster"
+              [(ngModel)]="genName"
+              [disabled]="busy()"
+              required
+            />
+            <span class="akd-field__hint">
+              The keypair (ed25519) is created inside AkerDock and stored encrypted — the
+              private half never exists anywhere else. Only the public key is shown, to be
+              added to the server's authorized_keys.
+            </span>
+          </div>
+          <div>
+            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+              <akd-icon name="sparkles" [size]="15" />
+              Generate
+            </button>
+          </div>
+          @if (generated(); as pk) {
+            <div class="generated" role="status">
+              <p class="generated__title">
+                Key "{{ pk.name }}" generated — add this public key to
+                <code>~/.ssh/authorized_keys</code> on the server:
+              </p>
+              <pre class="akd-secret">{{ pk.public_key }}</pre>
+              <button
+                class="akd-btn akd-btn--secondary akd-btn--sm"
+                type="button"
+                (click)="copy(pk.public_key ?? '')"
+              >
+                <akd-icon name="copy" [size]="14" />
+                Copy public key
+              </button>
+            </div>
+          }
         </form>
       </akd-card>
 
@@ -110,12 +155,12 @@ type PrivateKey = components['schemas']['PrivateKey'];
                         class="akd-iconbtn"
                         type="button"
                         [disabled]="busy()"
-                        (click)="toggleReveal(pk)"
+                        (click)="togglePublic(pk)"
                         [attr.aria-label]="
-                          revealed()[pk.uuid] ? 'Hide key material' : 'Reveal key material'
+                          shownPublic()[pk.uuid] ? 'Hide public key' : 'Show public key'
                         "
                       >
-                        <akd-icon [name]="revealed()[pk.uuid] ? 'eye-off' : 'eye'" [size]="15" />
+                        <akd-icon name="key-round" [size]="15" />
                       </button>
                       <button
                         class="akd-iconbtn"
@@ -138,10 +183,10 @@ type PrivateKey = components['schemas']['PrivateKey'];
                     </span>
                   </td>
                 </tr>
-                @if (revealed()[pk.uuid]; as secret) {
+                @if (shownPublic()[pk.uuid]) {
                   <tr>
                     <td colspan="5">
-                      <pre class="akd-secret">{{ secret }}</pre>
+                      <pre class="akd-secret">{{ pk.public_key }}</pre>
                     </td>
                   </tr>
                 }
@@ -165,6 +210,16 @@ type PrivateKey = components['schemas']['PrivateKey'];
       pre.akd-secret {
         margin: var(--space-2) 0;
         white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .generated {
+        border-top: 1px solid var(--border-1);
+        padding-top: var(--space-3);
+      }
+      .generated__title {
+        margin: 0 0 var(--space-2);
+        color: var(--text-2);
+        font-size: var(--text-sm);
       }
       .row-actions {
         display: inline-flex;
@@ -183,11 +238,14 @@ export class PrivateKeysComponent {
   protected readonly loading = signal(true);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
-  /** Revealed key material, per uuid — kept only in memory, never persisted. */
-  protected readonly revealed = signal<Record<string, string>>({});
+  /** Rows whose public key line is unfolded (nothing secret about it). */
+  protected readonly shownPublic = signal<Record<string, boolean>>({});
+  /** The last server-generated key, shown with its authorized_keys line. */
+  protected readonly generated = signal<PrivateKey | null>(null);
 
   protected name = '';
   protected material = '';
+  protected genName = '';
 
   constructor() {
     void this.load();
@@ -226,29 +284,34 @@ export class PrivateKeysComponent {
   }
 
   /**
-   * The private material is only served with reveal=true AND the read:sensitive
-   * permission (INV-003) — a 403 here means this session lacks it, and the
-   * error says so.
+   * ADR-075: the private half never leaves the server — the response carries
+   * the public key only, shown with the authorized_keys instruction.
    */
-  protected async toggleReveal(pk: PrivateKey): Promise<void> {
-    if (this.revealed()[pk.uuid]) {
-      const { [pk.uuid]: _, ...rest } = this.revealed();
-      this.revealed.set(rest);
-      return;
-    }
+  protected async generate(): Promise<void> {
+    if (!this.genName.trim()) return;
     this.busy.set(true);
     this.error.set(null);
     try {
-      const full = await this.api.client().getPrivateKey(pk.uuid, { reveal: true });
-      if (full.private_key) {
-        this.revealed.set({ ...this.revealed(), [pk.uuid]: full.private_key });
-      } else {
-        this.error.set('The server redacted the key material.');
-      }
+      const pk = await this.api.client().generatePrivateKey({ name: this.genName.trim() });
+      this.generated.set(pk);
+      this.genName = '';
+      await this.load();
     } catch (err) {
       this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
+    }
+  }
+
+  protected togglePublic(pk: PrivateKey): void {
+    this.shownPublic.set({ ...this.shownPublic(), [pk.uuid]: !this.shownPublic()[pk.uuid] });
+  }
+
+  protected async copy(value: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      this.error.set('Could not write to the clipboard.');
     }
   }
 

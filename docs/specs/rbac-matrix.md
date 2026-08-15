@@ -163,9 +163,11 @@ Domain families:
 | 38 | `servers:manage` | Create/edit/remove a server, validation/install | `write` |
 | 39 | `servers:maintain` | Cleanup, proxy lifecycle | `write` |
 | 40 | `servers:proxy` | Edit proxy config, regenerate labels, CA rotation | `write` |
-| 41 | `keys:read` | List SSH keys (metadata) | `read` |
-| 42 | `keys:reveal` | Reveal private key material (`read:sensitive`) | `read:sensitive` |
-| 43 | `keys:manage` | Create/edit/delete/rotate SSH keys | `write` |
+| 41 | `keys:read` | List SSH keys (metadata and public key) | `read` |
+| 43 | `keys:manage` | Create/generate/edit/delete/rotate SSH keys | `write` |
+
+> **Note** — number 42 (`keys:reveal`) is retired, not reused: ADR-075 made private key
+> material write-only for every key — there is no reveal to permit.
 | 68 | `certificates:read` | Inventory of a server's certificates (domains, expiration, status — observed reflection) | `read` |
 | 69 | `certificates:renew` | Force renewal/re-issuance of a certificate (202 + job, audited) | `write` |
 
@@ -279,7 +281,6 @@ Domain families:
 | `jobs:manage` | write | ● | ○ | ○ |
 | `keys:manage` | write | ● | ○ | ○ |
 | `keys:read` | read | ● | ● | ○ |
-| `keys:reveal` | read:sensitive | ● | ○ | ○ |
 | `logs:manage` | write | ● | ○ | ○ |
 | `logs:read` | read | ● | ● | ○ |
 | `members:manage` | write | ● | ○ | ○ |
@@ -329,9 +330,11 @@ Domain families:
 >   deployments, backups, previews, notifications, uptime — and administers nothing: no
 >   members/roles/tokens/invitations, no servers/keys/cloud, no root terminal.
 > - **member writes secrets but cannot reveal them.** `secrets:write` without
->   `secrets:reveal`, `databases:read` without `databases:credentials`, `keys:read` without
->   `keys:reveal`: setting a value is a configuration act, reading one back is exfiltration
->   of a secret, and INV-003 separates the two. This surprises people; it is deliberate.
+>   `secrets:reveal`, `databases:read` without `databases:credentials`: setting a value is a
+>   configuration act, reading one back is exfiltration of a secret, and INV-003 separates
+>   the two. This surprises people; it is deliberate. For private keys the asymmetry is
+>   total (ADR-075): the material is write-only for **everyone**, root included — there is
+>   no `keys:reveal` at all.
 > - **reviewer** holds four permissions (ADR-059): `previews:read` plus the read-only path
 >   to reach it — `projects:read`, `environments:read`, `applications:read` (previews are
 >   only addressable per application, and the original one-permission set left the role
@@ -584,9 +587,10 @@ diff (§23.4).
   member, and a test that only checks "cannot mutate" would miss the point.
 - **member**: `servers:manage`, `keys:manage`, `cloud:*`, `terminal:root`, `members:manage`,
   `roles:manage`, `tokens:create`, `jobs:manage`, `config:*` → `403`.
-- **member and secrets**: `secrets:write` succeeds, `secrets:reveal`,
-  `databases:credentials` and `keys:reveal` are refused (INV-003) — the asymmetry of §2 is
-  deliberate and must stay tested, or it will be "fixed" by someone who reads it as a bug.
+- **member and secrets**: `secrets:write` succeeds, `secrets:reveal` and
+  `databases:credentials` are refused (INV-003) — the asymmetry of §2 is deliberate and
+  must stay tested, or it will be "fixed" by someone who reads it as a bug. Private key
+  material has no reveal for anyone (ADR-075), so there is nothing to test per role there.
 - **admin**: every team permission granted, every `instance:*` refused.
 
 ### 6.5 Sensitive actions (dual control §5)
@@ -628,8 +632,8 @@ diff (§23.4).
 | createProject / updateProject / deleteProject | write | `projects:manage` |
 | listEnvironments / getEnvironment | read | `environments:read` |
 | createEnvironment / updateEnvironment / deleteEnvironment | write | `environments:manage` |
-| listPrivateKeys / getPrivateKey | read | `keys:read` (+ `keys:reveal` if key material requested) |
-| createPrivateKey / updatePrivateKey / deletePrivateKey | write | `keys:manage` |
+| listPrivateKeys / getPrivateKey | read | `keys:read` (metadata and public key only — no reveal, ADR-075) |
+| createPrivateKey / generatePrivateKey / updatePrivateKey / deletePrivateKey | write | `keys:manage` |
 | listServers / getServer / listServerResources / listServerDomains | read | `servers:read` |
 | createServer / updateServer / deleteServer | write | `servers:manage` |
 | validateServer | write | `servers:manage` |

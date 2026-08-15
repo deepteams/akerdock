@@ -1856,9 +1856,8 @@ paths:
       operationId: listPrivateKeys
       summary: List private keys
       description: >-
-        Lists key metadata (name, fingerprint, public key). The
-        `private_key` field is always `null` in lists, whatever
-        the permission.
+        Lists key metadata (name, fingerprint, public key). Private
+        material is never part of any response (ADR-075).
       x-required-permission: keys:read
       parameters:
         - $ref: "#/components/parameters/Cursor"
@@ -1887,9 +1886,9 @@ paths:
       operationId: createPrivateKey
       summary: Register a private key
       description: >-
-        Registers a private SSH key (stored encrypted, §23.2). The response
-        never contains the private material, even with `read:sensitive`
-        immediately after creation.
+        Registers a private SSH key (stored encrypted, §23.2). Once a key
+        enters the platform it can never be read back, whatever the
+        permission — only the public key is ever served (ADR-075).
       x-required-permission: keys:manage
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1922,6 +1921,49 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /private-keys/generate:
+    post:
+      tags: [PrivateKeys]
+      operationId: generatePrivateKey
+      summary: Generate a private key inside the platform
+      description: >-
+        Generates an ed25519 keypair server-side (ADR-075). The private half
+        is stored encrypted (§23.2) and, like every key, can never be read
+        back — only the public key is returned, ready to be added to a
+        server's `authorized_keys`. Generation means the private material
+        never existed outside the platform at all.
+      x-required-permission: keys:manage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrivateKeyGenerate"
+      responses:
+        "201":
+          description: Key generated (public half and metadata only).
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrivateKey"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /private-keys/{private_key_uuid}:
     parameters:
       - $ref: "#/components/parameters/PrivateKeyUuid"
@@ -1930,25 +1972,13 @@ paths:
       operationId: getPrivateKey
       summary: Private key details
       description: >-
-        Returns the key's metadata. The `private_key` field is only
-        populated if the token holds `read:sensitive` AND the
-        `reveal=true` parameter is passed explicitly; otherwise it is
-        `null` and `is_redacted` is `true`. Each reveal is audited
-        (§23.4).
+        Returns the key's metadata and public key. There is no reveal:
+        private material never leaves the platform, whatever the
+        permission (ADR-075).
       x-required-permission: keys:read
-      parameters:
-        - name: reveal
-          in: query
-          required: false
-          description: >-
-            Explicit request to reveal the private material. Requires
-            `read:sensitive` (otherwise `403`).
-          schema:
-            type: boolean
-            default: false
       responses:
         "200":
-          description: The key (private material depending on permission and `reveal`).
+          description: The key (metadata and public key only).
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -11454,12 +11484,29 @@ components:
           writeOnly: true
           description: >-
             Private SSH key material in PEM/OpenSSH format, without a
-            passphrase (§3.1). Stored encrypted (AEAD, §23.2); never
-            returned in the creation response.
+            passphrase (§3.1). Stored encrypted (AEAD, §23.2); once
+            written it can never be read back (ADR-075).
+
+    PrivateKeyGenerate:
+      type: object
+      required: [name]
+      description: >-
+        Server-side ed25519 generation (ADR-075). No algorithm parameter:
+        ed25519 is what the instance key already uses.
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
 
     PrivateKeyUpdate:
       type: object
-      description: Partial update. Providing `private_key` replaces the material (rotation).
+      description: >-
+        Partial update. Providing `private_key` replaces the material
+        (rotation) — a write like any other: the new material is no more
+        readable than what it replaces (ADR-075).
       properties:
         name:
           type: string
@@ -11475,9 +11522,9 @@ components:
     PrivateKey:
       type: object
       description: >-
-        Private SSH key. The `private_key` field is only populated on a
-        single-resource `GET` with the `read:sensitive` permission AND `reveal=true`
-        (INV-003); otherwise `null` and `is_redacted=true`.
+        Private SSH key, metadata and public half only. The private
+        material is write-only for the platform's own SSH use: once a key
+        enters, it can never be read back through the API (ADR-075).
       required: [uuid, name, fingerprint, created_at, version]
       properties:
         uuid:
@@ -11495,14 +11542,6 @@ components:
         public_key:
           type: string
           description: Derived public key (usable as a deploy key).
-          readOnly: true
-        private_key:
-          type: string
-          nullable: true
-          description: Private material — see reveal conditions in the schema description.
-        is_redacted:
-          type: boolean
-          description: True if `private_key` was masked for lack of permission or of `reveal=true`.
           readOnly: true
         in_use:
           type: boolean

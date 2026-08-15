@@ -57,7 +57,7 @@ func TestOpscovMalformedPathUUIDs(t *testing.T) {
 	a, _ := opscovAPI(t)
 
 	rec := httptest.NewRecorder()
-	a.GetPrivateKey(rec, opscovRequest(http.MethodGet, "/x", ""), "not-a-uuid", api.GetPrivateKeyParams{})
+	a.GetPrivateKey(rec, opscovRequest(http.MethodGet, "/x", ""), "not-a-uuid")
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("private key uuid = %d, want 404", rec.Code)
 	}

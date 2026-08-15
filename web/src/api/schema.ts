@@ -777,15 +777,35 @@ export interface paths {
         };
         /**
          * List private keys
-         * @description Lists key metadata (name, fingerprint, public key). The `private_key` field is always `null` in lists, whatever the permission.
+         * @description Lists key metadata (name, fingerprint, public key). Private material is never part of any response (ADR-075).
          */
         get: operations["listPrivateKeys"];
         put?: never;
         /**
          * Register a private key
-         * @description Registers a private SSH key (stored encrypted, §23.2). The response never contains the private material, even with `read:sensitive` immediately after creation.
+         * @description Registers a private SSH key (stored encrypted, §23.2). Once a key enters the platform it can never be read back, whatever the permission — only the public key is ever served (ADR-075).
          */
         post: operations["createPrivateKey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/private-keys/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate a private key inside the platform
+         * @description Generates an ed25519 keypair server-side (ADR-075). The private half is stored encrypted (§23.2) and, like every key, can never be read back — only the public key is returned, ready to be added to a server's `authorized_keys`. Generation means the private material never existed outside the platform at all.
+         */
+        post: operations["generatePrivateKey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -804,7 +824,7 @@ export interface paths {
         };
         /**
          * Private key details
-         * @description Returns the key's metadata. The `private_key` field is only populated if the token holds `read:sensitive` AND the `reveal=true` parameter is passed explicitly; otherwise it is `null` and `is_redacted` is `true`. Each reveal is audited (§23.4).
+         * @description Returns the key's metadata and public key. There is no reveal: private material never leaves the platform, whatever the permission (ADR-075).
          */
         get: operations["getPrivateKey"];
         put?: never;
@@ -4988,17 +5008,22 @@ export interface components {
         PrivateKeyCreate: {
             name: string;
             description?: string | null;
-            /** @description Private SSH key material in PEM/OpenSSH format, without a passphrase (§3.1). Stored encrypted (AEAD, §23.2); never returned in the creation response. */
+            /** @description Private SSH key material in PEM/OpenSSH format, without a passphrase (§3.1). Stored encrypted (AEAD, §23.2); once written it can never be read back (ADR-075). */
             private_key: string;
         };
-        /** @description Partial update. Providing `private_key` replaces the material (rotation). */
+        /** @description Server-side ed25519 generation (ADR-075). No algorithm parameter: ed25519 is what the instance key already uses. */
+        PrivateKeyGenerate: {
+            name: string;
+            description?: string | null;
+        };
+        /** @description Partial update. Providing `private_key` replaces the material (rotation) — a write like any other: the new material is no more readable than what it replaces (ADR-075). */
         PrivateKeyUpdate: {
             name?: string;
             description?: string | null;
             /** @description New key material (rotation). Referencing servers move back to `pending`. */
             private_key?: string;
         };
-        /** @description Private SSH key. The `private_key` field is only populated on a single-resource `GET` with the `read:sensitive` permission AND `reveal=true` (INV-003); otherwise `null` and `is_redacted=true`. */
+        /** @description Private SSH key, metadata and public half only. The private material is write-only for the platform's own SSH use: once a key enters, it can never be read back through the API (ADR-075). */
         PrivateKey: {
             readonly uuid: string;
             name: string;
@@ -5007,10 +5032,6 @@ export interface components {
             readonly fingerprint: string;
             /** @description Derived public key (usable as a deploy key). */
             readonly public_key?: string;
-            /** @description Private material — see reveal conditions in the schema description. */
-            private_key?: string | null;
-            /** @description True if `private_key` was masked for lack of permission or of `reveal=true`. */
-            readonly is_redacted?: boolean;
             /** @description True if the key is referenced by at least one server or application. */
             readonly in_use?: boolean;
             readonly version: number;
@@ -8388,12 +8409,43 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    generatePrivateKey: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrivateKeyGenerate"];
+            };
+        };
+        responses: {
+            /** @description Key generated (public half and metadata only). */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrivateKey"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     getPrivateKey: {
         parameters: {
-            query?: {
-                /** @description Explicit request to reveal the private material. Requires `read:sensitive` (otherwise `403`). */
-                reveal?: boolean;
-            };
+            query?: never;
             header?: never;
             path: {
                 /** @description UUID of the private key. */
@@ -8403,7 +8455,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The key (private material depending on permission and `reveal`). */
+            /** @description The key (metadata and public key only). */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];

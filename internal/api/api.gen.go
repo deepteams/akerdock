@@ -4696,7 +4696,7 @@ type PreviewRouteTemplate struct {
 	Port *int `json:"port,omitempty"`
 }
 
-// PrivateKey Private SSH key. The `private_key` field is only populated on a single-resource `GET` with the `read:sensitive` permission AND `reveal=true` (INV-003); otherwise `null` and `is_redacted=true`.
+// PrivateKey Private SSH key, metadata and public half only. The private material is write-only for the platform's own SSH use: once a key enters, it can never be read back through the API (ADR-075).
 type PrivateKey struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
 	Description *string    `json:"description,omitempty"`
@@ -4705,14 +4705,8 @@ type PrivateKey struct {
 	Fingerprint *string `json:"fingerprint,omitempty"`
 
 	// InUse True if the key is referenced by at least one server or application.
-	InUse *bool `json:"in_use,omitempty"`
-
-	// IsRedacted True if `private_key` was masked for lack of permission or of `reveal=true`.
-	IsRedacted *bool  `json:"is_redacted,omitempty"`
-	Name       string `json:"name"`
-
-	// PrivateKey Private material — see reveal conditions in the schema description.
-	PrivateKey *string `json:"private_key,omitempty"`
+	InUse *bool  `json:"in_use,omitempty"`
+	Name  string `json:"name"`
 
 	// PublicKey Derived public key (usable as a deploy key).
 	PublicKey *string    `json:"public_key,omitempty"`
@@ -4726,11 +4720,17 @@ type PrivateKeyCreate struct {
 	Description *string `json:"description,omitempty"`
 	Name        string  `json:"name"`
 
-	// PrivateKey Private SSH key material in PEM/OpenSSH format, without a passphrase (§3.1). Stored encrypted (AEAD, §23.2); never returned in the creation response.
+	// PrivateKey Private SSH key material in PEM/OpenSSH format, without a passphrase (§3.1). Stored encrypted (AEAD, §23.2); once written it can never be read back (ADR-075).
 	PrivateKey *string `json:"private_key,omitempty"`
 }
 
-// PrivateKeyUpdate Partial update. Providing `private_key` replaces the material (rotation).
+// PrivateKeyGenerate Server-side ed25519 generation (ADR-075). No algorithm parameter: ed25519 is what the instance key already uses.
+type PrivateKeyGenerate struct {
+	Description *string `json:"description,omitempty"`
+	Name        string  `json:"name"`
+}
+
+// PrivateKeyUpdate Partial update. Providing `private_key` replaces the material (rotation) — a write like any other: the new material is no more readable than what it replaces (ADR-075).
 type PrivateKeyUpdate struct {
 	Description *string `json:"description,omitempty"`
 	Name        *string `json:"name,omitempty"`
@@ -6361,10 +6361,10 @@ type CreatePrivateKeyParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
-// GetPrivateKeyParams defines parameters for GetPrivateKey.
-type GetPrivateKeyParams struct {
-	// Reveal Explicit request to reveal the private material. Requires `read:sensitive` (otherwise `403`).
-	Reveal *bool `form:"reveal,omitempty" json:"reveal,omitempty"`
+// GeneratePrivateKeyParams defines parameters for GeneratePrivateKey.
+type GeneratePrivateKeyParams struct {
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdatePrivateKeyParams defines parameters for UpdatePrivateKey.
@@ -6932,6 +6932,9 @@ type CreateNotificationRuleJSONRequestBody = NotificationRuleCreate
 
 // CreatePrivateKeyJSONRequestBody defines body for CreatePrivateKey for application/json ContentType.
 type CreatePrivateKeyJSONRequestBody = PrivateKeyCreate
+
+// GeneratePrivateKeyJSONRequestBody defines body for GeneratePrivateKey for application/json ContentType.
+type GeneratePrivateKeyJSONRequestBody = PrivateKeyGenerate
 
 // UpdatePrivateKeyJSONRequestBody defines body for UpdatePrivateKey for application/json ContentType.
 type UpdatePrivateKeyJSONRequestBody = PrivateKeyUpdate
@@ -7519,12 +7522,15 @@ type ServerInterface interface {
 	// Register a private key
 	// (POST /private-keys)
 	CreatePrivateKey(w http.ResponseWriter, r *http.Request, params CreatePrivateKeyParams)
+	// Generate a private key inside the platform
+	// (POST /private-keys/generate)
+	GeneratePrivateKey(w http.ResponseWriter, r *http.Request, params GeneratePrivateKeyParams)
 	// Delete a private key
 	// (DELETE /private-keys/{private_key_uuid})
 	DeletePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid)
 	// Private key details
 	// (GET /private-keys/{private_key_uuid})
-	GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params GetPrivateKeyParams)
+	GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid)
 	// Update a private key
 	// (PATCH /private-keys/{private_key_uuid})
 	UpdatePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params UpdatePrivateKeyParams)
@@ -8593,6 +8599,12 @@ func (_ Unimplemented) CreatePrivateKey(w http.ResponseWriter, r *http.Request, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Generate a private key inside the platform
+// (POST /private-keys/generate)
+func (_ Unimplemented) GeneratePrivateKey(w http.ResponseWriter, r *http.Request, params GeneratePrivateKeyParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Delete a private key
 // (DELETE /private-keys/{private_key_uuid})
 func (_ Unimplemented) DeletePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid) {
@@ -8601,7 +8613,7 @@ func (_ Unimplemented) DeletePrivateKey(w http.ResponseWriter, r *http.Request, 
 
 // Private key details
 // (GET /private-keys/{private_key_uuid})
-func (_ Unimplemented) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params GetPrivateKeyParams) {
+func (_ Unimplemented) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14750,6 +14762,53 @@ func (siw *ServerInterfaceWrapper) CreatePrivateKey(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GeneratePrivateKey operation middleware
+func (siw *ServerInterfaceWrapper) GeneratePrivateKey(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GeneratePrivateKeyParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GeneratePrivateKey(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeletePrivateKey operation middleware
 func (siw *ServerInterfaceWrapper) DeletePrivateKey(w http.ResponseWriter, r *http.Request) {
 
@@ -14803,24 +14862,8 @@ func (siw *ServerInterfaceWrapper) GetPrivateKey(w http.ResponseWriter, r *http.
 
 	r = r.WithContext(ctx)
 
-	// Parameter object where we will unmarshal all parameters from the context
-	var params GetPrivateKeyParams
-
-	// ------------- Optional query parameter "reveal" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "reveal", r.URL.Query(), &params.Reveal, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reveal"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reveal", Err: err})
-		}
-		return
-	}
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetPrivateKey(w, r, privateKeyUuid, params)
+		siw.Handler.GetPrivateKey(w, r, privateKeyUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20614,6 +20657,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/private-keys", wrapper.CreatePrivateKey)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/private-keys/generate", wrapper.GeneratePrivateKey)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/private-keys/{private_key_uuid}", wrapper.DeletePrivateKey)
@@ -32019,6 +32065,128 @@ func (response CreatePrivateKey429JSONResponse) VisitCreatePrivateKeyResponse(w 
 	return err
 }
 
+type GeneratePrivateKeyRequestObject struct {
+	Params GeneratePrivateKeyParams
+	Body   *GeneratePrivateKeyJSONRequestBody
+}
+
+type GeneratePrivateKeyResponseObject interface {
+	VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error
+}
+
+type GeneratePrivateKey201ResponseHeaders struct {
+	ETag *string
+}
+
+type GeneratePrivateKey201JSONResponse struct {
+	Body    PrivateKey
+	Headers GeneratePrivateKey201ResponseHeaders
+}
+
+func (response GeneratePrivateKey201JSONResponse) VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GeneratePrivateKey400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response GeneratePrivateKey400JSONResponse) VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GeneratePrivateKey401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GeneratePrivateKey401JSONResponse) VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GeneratePrivateKey403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GeneratePrivateKey403JSONResponse) VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GeneratePrivateKey409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GeneratePrivateKey409JSONResponse) VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GeneratePrivateKey422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response GeneratePrivateKey422JSONResponse) VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GeneratePrivateKey429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GeneratePrivateKey429JSONResponse) VisitGeneratePrivateKeyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type DeletePrivateKeyRequestObject struct {
 	PrivateKeyUuid PrivateKeyUuid `json:"private_key_uuid"`
 }
@@ -32110,7 +32278,6 @@ func (response DeletePrivateKey429JSONResponse) VisitDeletePrivateKeyResponse(w 
 
 type GetPrivateKeyRequestObject struct {
 	PrivateKeyUuid PrivateKeyUuid `json:"private_key_uuid"`
-	Params         GetPrivateKeyParams
 }
 
 type GetPrivateKeyResponseObject interface {
@@ -43543,6 +43710,9 @@ type StrictServerInterface interface {
 	// Register a private key
 	// (POST /private-keys)
 	CreatePrivateKey(ctx context.Context, request CreatePrivateKeyRequestObject) (CreatePrivateKeyResponseObject, error)
+	// Generate a private key inside the platform
+	// (POST /private-keys/generate)
+	GeneratePrivateKey(ctx context.Context, request GeneratePrivateKeyRequestObject) (GeneratePrivateKeyResponseObject, error)
 	// Delete a private key
 	// (DELETE /private-keys/{private_key_uuid})
 	DeletePrivateKey(ctx context.Context, request DeletePrivateKeyRequestObject) (DeletePrivateKeyResponseObject, error)
@@ -47320,6 +47490,39 @@ func (sh *strictHandler) CreatePrivateKey(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// GeneratePrivateKey operation middleware
+func (sh *strictHandler) GeneratePrivateKey(w http.ResponseWriter, r *http.Request, params GeneratePrivateKeyParams) {
+	var request GeneratePrivateKeyRequestObject
+
+	request.Params = params
+
+	var body GeneratePrivateKeyJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GeneratePrivateKey(ctx, request.(GeneratePrivateKeyRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GeneratePrivateKey")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GeneratePrivateKeyResponseObject); ok {
+		if err := validResponse.VisitGeneratePrivateKeyResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // DeletePrivateKey operation middleware
 func (sh *strictHandler) DeletePrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid) {
 	var request DeletePrivateKeyRequestObject
@@ -47347,11 +47550,10 @@ func (sh *strictHandler) DeletePrivateKey(w http.ResponseWriter, r *http.Request
 }
 
 // GetPrivateKey operation middleware
-func (sh *strictHandler) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid, params GetPrivateKeyParams) {
+func (sh *strictHandler) GetPrivateKey(w http.ResponseWriter, r *http.Request, privateKeyUuid PrivateKeyUuid) {
 	var request GetPrivateKeyRequestObject
 
 	request.PrivateKeyUuid = privateKeyUuid
-	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.GetPrivateKey(ctx, request.(GetPrivateKeyRequestObject))

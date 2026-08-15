@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/deepteams/akerdock/internal/api"
-	"github.com/deepteams/akerdock/internal/auth"
 	"github.com/deepteams/akerdock/internal/sshkey"
 	"github.com/deepteams/akerdock/internal/store"
 )
@@ -428,37 +427,66 @@ func TestOpscovCreatePrivateKey(t *testing.T) {
 	}
 }
 
-func TestOpscovGetPrivateKeyReveal(t *testing.T) {
-	t.Run("without read:sensitive", func(t *testing.T) {
-		a, _ := opscovAPI(t)
-		rec := httptest.NewRecorder()
-		req := opscovRequestAs(opscovIdentity(auth.PermKeysRead), http.MethodGet, "/x", "")
-		a.GetPrivateKey(rec, req, fixtureUUID, api.GetPrivateKeyParams{Reveal: ptr(true)})
-		if rec.Code != http.StatusForbidden {
-			t.Errorf("reveal without permission = %d, want 403", rec.Code)
-		}
-	})
-	t.Run("undecryptable material", func(t *testing.T) {
-		a, _ := opscovAPI(t)
-		rec := httptest.NewRecorder()
-		a.GetPrivateKey(rec, opscovRequest(http.MethodGet, "/x", ""), fixtureUUID, api.GetPrivateKeyParams{Reveal: ptr(true)})
-		if rec.Code != http.StatusInternalServerError {
-			t.Errorf("bad ciphertext = %d, want 500", rec.Code)
-		}
-	})
-	t.Run("revealed", func(t *testing.T) {
+// ADR-075: there is no reveal — the response never carries private material,
+// whatever the caller's permissions. The fake stores decryptable ciphertext
+// so a leak, if one existed, would be visible in the body.
+func TestOpscovGetPrivateKeyNeverServesMaterial(t *testing.T) {
+	a, db := opscovAPI(t)
+	blob := opscovEncrypt(t, a, "private_keys", "private_key_enc", []byte("PEM MATERIAL"))
+	db.on("GetPrivateKeyByUUID").fill = opscovBytesFill(blob)
+	rec := httptest.NewRecorder()
+	a.GetPrivateKey(rec, opscovRequest(http.MethodGet, "/x", ""), fixtureUUID)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get = %d, want 200: %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "PEM MATERIAL") || strings.Contains(rec.Body.String(), `"private_key"`) {
+		t.Errorf("response carries private material: %s", rec.Body)
+	}
+}
+
+func TestOpscovGeneratePrivateKey(t *testing.T) {
+	run := func(t *testing.T, body string, prep func(*opscovDB)) *httptest.ResponseRecorder {
+		t.Helper()
 		a, db := opscovAPI(t)
-		blob := opscovEncrypt(t, a, "private_keys", "private_key_enc", []byte("PEM MATERIAL"))
-		db.on("GetPrivateKeyByUUID").fill = opscovBytesFill(blob)
+		if prep != nil {
+			prep(db)
+		}
 		rec := httptest.NewRecorder()
-		a.GetPrivateKey(rec, opscovRequest(http.MethodGet, "/x", ""), fixtureUUID, api.GetPrivateKeyParams{Reveal: ptr(true)})
-		if rec.Code != http.StatusOK {
-			t.Fatalf("reveal = %d, want 200: %s", rec.Code, rec.Body)
-		}
-		if !strings.Contains(rec.Body.String(), "PEM MATERIAL") {
-			t.Errorf("reveal body misses the material: %s", rec.Body)
-		}
-	})
+		a.GeneratePrivateKey(rec, opscovRequest(http.MethodPost, "/x", body), api.GeneratePrivateKeyParams{})
+		return rec
+	}
+
+	if rec := run(t, "{not json", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("invalid JSON = %d, want 400", rec.Code)
+	}
+	if rec := run(t, `{"name":""}`, nil); rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("blank name = %d, want 422", rec.Code)
+	}
+	rec := run(t, `{"name":"prod-cluster","description":"ops"}`, nil)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("happy path = %d, want 201: %s", rec.Code, rec.Body)
+	}
+	// The fake echoes the inserted row's zero values; what matters is that the
+	// response schema never carries private material.
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") {
+		t.Errorf("generation response leaks private material: %s", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), `"private_key"`) {
+		t.Errorf("generation response should omit private_key entirely: %s", rec.Body)
+	}
+	if !strings.Contains(rec.Body.String(), `"public_key"`) {
+		t.Errorf("generation response should carry the public key: %s", rec.Body)
+	}
+	if rec := run(t, `{"name":"x"}`, func(db *opscovDB) {
+		db.on("CreatePrivateKey").err = opscovUnique()
+	}); rec.Code != http.StatusConflict {
+		t.Errorf("duplicate fingerprint = %d, want 409", rec.Code)
+	}
+	if rec := run(t, `{"name":"x"}`, func(db *opscovDB) {
+		db.on("CreatePrivateKey").err = opscovBoom()
+	}); rec.Code != http.StatusInternalServerError {
+		t.Errorf("store failure = %d, want 500", rec.Code)
+	}
 }
 
 func TestOpscovUpdatePrivateKey(t *testing.T) {
