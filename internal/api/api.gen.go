@@ -5330,9 +5330,12 @@ type Server struct {
 	GpuMemoryMb *int `json:"gpu_memory_mb,omitempty"`
 
 	// GpuName GPU observed at validation (ADR-079) — a fact, not a setting. Null means none observed, or a card Docker cannot hand to containers (missing NVIDIA runtime, named in the validation).
-	GpuName       *string `json:"gpu_name,omitempty"`
-	Host          string  `json:"host"`
-	IsBuildServer *bool   `json:"is_build_server,omitempty"`
+	GpuName *string `json:"gpu_name,omitempty"`
+
+	// HfTokenSet A per-server Hugging Face token is stored (ADR-081). Write-only: set/replace/clear via PUT /servers/{uuid}/hf-token, never read back.
+	HfTokenSet    *bool  `json:"hf_token_set,omitempty"`
+	Host          string `json:"host"`
+	IsBuildServer *bool  `json:"is_build_server,omitempty"`
 
 	// IsLocalhost True for the `localhost` server pre-registered at bootstrap (instance-config §6.2) — the machine hosting the instance. Never settable through the API.
 	IsLocalhost *bool `json:"is_localhost,omitempty"`
@@ -6818,6 +6821,18 @@ type RunServerCleanupParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// DeleteServerHFCacheParams defines parameters for DeleteServerHFCache.
+type DeleteServerHFCacheParams struct {
+	ModelId *string `form:"model_id,omitempty" json:"model_id,omitempty"`
+	All     *bool   `form:"all,omitempty" json:"all,omitempty"`
+}
+
+// SetServerHFTokenJSONBody defines parameters for SetServerHFToken.
+type SetServerHFTokenJSONBody struct {
+	// Token The HF token; empty clears the stored one.
+	Token string `json:"token"`
+}
+
 // GetProxyLogsParams defines parameters for GetProxyLogs.
 type GetProxyLogsParams struct {
 	// Lines Number of tail lines (default 200, max 2000).
@@ -7281,6 +7296,9 @@ type CreateServerJSONRequestBody = ServerCreate
 
 // UpdateServerJSONRequestBody defines body for UpdateServer for application/json ContentType.
 type UpdateServerJSONRequestBody = ServerUpdate
+
+// SetServerHFTokenJSONRequestBody defines body for SetServerHFToken for application/json ContentType.
+type SetServerHFTokenJSONRequestBody SetServerHFTokenJSONBody
 
 // ProxyLifecycleJSONRequestBody defines body for ProxyLifecycle for application/json ContentType.
 type ProxyLifecycleJSONRequestBody = ProxyLifecycleRequest
@@ -7994,6 +8012,15 @@ type ServerInterface interface {
 	// List the domains served by a server
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
+	// Delete one model's weights, or the whole cache
+	// (DELETE /servers/{server_uuid}/hf-cache)
+	DeleteServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params DeleteServerHFCacheParams)
+	// The server's Hugging Face weights cache
+	// (GET /servers/{server_uuid}/hf-cache)
+	ListServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
+	// Set the server's Hugging Face token
+	// (PUT /servers/{server_uuid}/hf-token)
+	SetServerHFToken(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
 	// Logs of a server's proxy
 	// (GET /servers/{server_uuid}/proxy/logs)
 	GetProxyLogs(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params GetProxyLogsParams)
@@ -9269,6 +9296,24 @@ func (_ Unimplemented) RunServerCleanup(w http.ResponseWriter, r *http.Request, 
 // List the domains served by a server
 // (GET /servers/{server_uuid}/domains)
 func (_ Unimplemented) ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete one model's weights, or the whole cache
+// (DELETE /servers/{server_uuid}/hf-cache)
+func (_ Unimplemented) DeleteServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params DeleteServerHFCacheParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The server's Hugging Face weights cache
+// (GET /servers/{server_uuid}/hf-cache)
+func (_ Unimplemented) ListServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set the server's Hugging Face token
+// (PUT /servers/{server_uuid}/hf-token)
+func (_ Unimplemented) SetServerHFToken(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -17539,6 +17584,131 @@ func (siw *ServerInterfaceWrapper) ListServerDomains(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// DeleteServerHFCache operation middleware
+func (siw *ServerInterfaceWrapper) DeleteServerHFCache(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteServerHFCacheParams
+
+	// ------------- Optional query parameter "model_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "model_id", r.URL.Query(), &params.ModelId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "model_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "all" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "all", r.URL.Query(), &params.All, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "all"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "all", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteServerHFCache(w, r, serverUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListServerHFCache operation middleware
+func (siw *ServerInterfaceWrapper) ListServerHFCache(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListServerHFCache(w, r, serverUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetServerHFToken operation middleware
+func (siw *ServerInterfaceWrapper) SetServerHFToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetServerHFToken(w, r, serverUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetProxyLogs operation middleware
 func (siw *ServerInterfaceWrapper) GetProxyLogs(w http.ResponseWriter, r *http.Request) {
 
@@ -21724,6 +21894,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/servers/{server_uuid}/domains", wrapper.ListServerDomains)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/servers/{server_uuid}/hf-cache", wrapper.DeleteServerHFCache)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/servers/{server_uuid}/hf-cache", wrapper.ListServerHFCache)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/servers/{server_uuid}/hf-token", wrapper.SetServerHFToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/servers/{server_uuid}/proxy/logs", wrapper.GetProxyLogs)
@@ -38209,6 +38388,303 @@ func (response ListServerDomains429JSONResponse) VisitListServerDomainsResponse(
 	return err
 }
 
+type DeleteServerHFCacheRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+	Params     DeleteServerHFCacheParams
+}
+
+type DeleteServerHFCacheResponseObject interface {
+	VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error
+}
+
+type DeleteServerHFCache204Response struct {
+}
+
+func (response DeleteServerHFCache204Response) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteServerHFCache400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteServerHFCache400JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteServerHFCache401JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteServerHFCache403JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteServerHFCache404JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteServerHFCache409JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response DeleteServerHFCache422JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteServerHFCache429JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCacheRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+}
+
+type ListServerHFCacheResponseObject interface {
+	VisitListServerHFCacheResponse(w http.ResponseWriter) error
+}
+
+type ListServerHFCache200JSONResponse struct {
+	Data []struct {
+		ModelId string `json:"model_id"`
+		SizeMb  int    `json:"size_mb"`
+	} `json:"data"`
+	TotalMb int `json:"total_mb"`
+}
+
+func (response ListServerHFCache200JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListServerHFCache401JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListServerHFCache404JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListServerHFCache409JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListServerHFCache429JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFTokenRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+	Body       *SetServerHFTokenJSONRequestBody
+}
+
+type SetServerHFTokenResponseObject interface {
+	VisitSetServerHFTokenResponse(w http.ResponseWriter) error
+}
+
+type SetServerHFToken204Response struct {
+}
+
+func (response SetServerHFToken204Response) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetServerHFToken400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetServerHFToken400JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SetServerHFToken401JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SetServerHFToken403JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetServerHFToken404JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response SetServerHFToken429JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetProxyLogsRequestObject struct {
 	ServerUuid ServerUuid `json:"server_uuid"`
 	Params     GetProxyLogsParams
@@ -45975,6 +46451,15 @@ type StrictServerInterface interface {
 	// List the domains served by a server
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(ctx context.Context, request ListServerDomainsRequestObject) (ListServerDomainsResponseObject, error)
+	// Delete one model's weights, or the whole cache
+	// (DELETE /servers/{server_uuid}/hf-cache)
+	DeleteServerHFCache(ctx context.Context, request DeleteServerHFCacheRequestObject) (DeleteServerHFCacheResponseObject, error)
+	// The server's Hugging Face weights cache
+	// (GET /servers/{server_uuid}/hf-cache)
+	ListServerHFCache(ctx context.Context, request ListServerHFCacheRequestObject) (ListServerHFCacheResponseObject, error)
+	// Set the server's Hugging Face token
+	// (PUT /servers/{server_uuid}/hf-token)
+	SetServerHFToken(ctx context.Context, request SetServerHFTokenRequestObject) (SetServerHFTokenResponseObject, error)
 	// Logs of a server's proxy
 	// (GET /servers/{server_uuid}/proxy/logs)
 	GetProxyLogs(ctx context.Context, request GetProxyLogsRequestObject) (GetProxyLogsResponseObject, error)
@@ -51172,6 +51657,92 @@ func (sh *strictHandler) ListServerDomains(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListServerDomainsResponseObject); ok {
 		if err := validResponse.VisitListServerDomainsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteServerHFCache operation middleware
+func (sh *strictHandler) DeleteServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params DeleteServerHFCacheParams) {
+	var request DeleteServerHFCacheRequestObject
+
+	request.ServerUuid = serverUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteServerHFCache(ctx, request.(DeleteServerHFCacheRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteServerHFCache")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteServerHFCacheResponseObject); ok {
+		if err := validResponse.VisitDeleteServerHFCacheResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListServerHFCache operation middleware
+func (sh *strictHandler) ListServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	var request ListServerHFCacheRequestObject
+
+	request.ServerUuid = serverUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListServerHFCache(ctx, request.(ListServerHFCacheRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListServerHFCache")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListServerHFCacheResponseObject); ok {
+		if err := validResponse.VisitListServerHFCacheResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetServerHFToken operation middleware
+func (sh *strictHandler) SetServerHFToken(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	var request SetServerHFTokenRequestObject
+
+	request.ServerUuid = serverUuid
+
+	var body SetServerHFTokenJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetServerHFToken(ctx, request.(SetServerHFTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetServerHFToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetServerHFTokenResponseObject); ok {
+		if err := validResponse.VisitSetServerHFTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

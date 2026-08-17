@@ -3131,6 +3131,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/servers/{server_uuid}/hf-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the server. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the server's Hugging Face token
+         * @description Write-only (ADR-081, the ADR-075 stance): the token is enveloped and never read back — the dashboard only learns that one is stored. An empty token clears it. For this server's model containers it wins over the instance-wide AKERDOCK_HF_TOKEN.
+         */
+        put: operations["setServerHFToken"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/servers/{server_uuid}/hf-cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the server. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The server's Hugging Face weights cache
+         * @description The contents of the shared cache volume (ADR-080 §4), by model, with sizes — read through a typed one-shot on the server (ADR-081). The server's agent must be connected.
+         */
+        get: operations["listServerHFCache"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete one model's weights, or the whole cache
+         * @description Explicit space reclamation (ADR-081): `model_id` removes one model's weights, `all=true` empties the cache. Exactly one of the two is required. A running model keeps serving from memory and re-downloads at its next start.
+         */
+        delete: operations["deleteServerHFCache"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/models": {
         parameters: {
             query?: never;
@@ -5490,6 +5540,8 @@ export interface components {
             readonly gpu_name?: string | null;
             /** @description GPU memory reported by the driver in MiB (a unified-memory machine reports the shared pool). */
             readonly gpu_memory_mb?: number | null;
+            /** @description A per-server Hugging Face token is stored (ADR-081). Write-only: set/replace/clear via PUT /servers/{uuid}/hf-token, never read back. */
+            readonly hf_token_set?: boolean;
             /** @description Server that answers this server's public routes by SNI passthrough (ADR-077); null when the server serves its own. */
             edge_server_uuid?: string | null;
             private_key_uuid: string;
@@ -13320,6 +13372,103 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["JobAccepted"];
                 };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    setServerHFToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the server. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The HF token; empty clears the stored one. */
+                    token: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Stored (or cleared). */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listServerHFCache: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the server. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cache contents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: {
+                            model_id: string;
+                            size_mb: number;
+                        }[];
+                        total_mb: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteServerHFCache: {
+        parameters: {
+            query?: {
+                model_id?: string;
+                all?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description UUID of the server. */
+                server_uuid: components["parameters"]["ServerUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];

@@ -676,6 +676,9 @@ diff (§23.4).
 | deleteModel | write | `models:delete` |
 | startModel / stopModel / restartModel | deploy | `models:lifecycle` |
 | getModelCredentials | read:sensitive | `models:credentials` |
+| setServerHFToken | write | `servers:manage` |
+| listServerHFCache | read | `servers:read` |
+| deleteServerHFCache | write | `servers:maintain` |
 | listBackupPlans / getBackupPlan / listBackupExecutions | read | `backups:read` |
 | createBackupPlan / updateBackupPlan / deleteBackupPlan / executeBackupPlan | write | `backups:manage` |
 | **restoreBackupExecution** | write | **`backups:restore`** (dual control if non-empty database §5) |

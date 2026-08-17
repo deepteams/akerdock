@@ -7029,6 +7029,124 @@ paths:
 
   # ---------------------------------------------------------------------------
   # Backups of compose stacks' internal databases (compose-spec §10)
+  /servers/{server_uuid}/hf-token:
+    parameters:
+      - $ref: "#/components/parameters/ServerUuid"
+    put:
+      tags: [Servers]
+      operationId: setServerHFToken
+      summary: Set the server's Hugging Face token
+      description: >-
+        Write-only (ADR-081, the ADR-075 stance): the token is enveloped and
+        never read back — the dashboard only learns that one is stored. An
+        empty token clears it. For this server's model containers it wins
+        over the instance-wide AKERDOCK_HF_TOKEN.
+      x-required-permission: servers:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: The HF token; empty clears the stored one.
+      responses:
+        "204":
+          description: Stored (or cleared).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /servers/{server_uuid}/hf-cache:
+    parameters:
+      - $ref: "#/components/parameters/ServerUuid"
+    get:
+      tags: [Servers]
+      operationId: listServerHFCache
+      summary: The server's Hugging Face weights cache
+      description: >-
+        The contents of the shared cache volume (ADR-080 §4), by model, with
+        sizes — read through a typed one-shot on the server (ADR-081). The
+        server's agent must be connected.
+      x-required-permission: servers:read
+      responses:
+        "200":
+          description: Cache contents.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total_mb]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [model_id, size_mb]
+                      properties:
+                        model_id:
+                          type: string
+                        size_mb:
+                          type: integer
+                  total_mb:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [Servers]
+      operationId: deleteServerHFCache
+      summary: Delete one model's weights, or the whole cache
+      description: >-
+        Explicit space reclamation (ADR-081): `model_id` removes one model's
+        weights, `all=true` empties the cache. Exactly one of the two is
+        required. A running model keeps serving from memory and re-downloads
+        at its next start.
+      x-required-permission: servers:maintain
+      parameters:
+        - name: model_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: all
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   # Models — first-class inference resources (ADR-080): vLLM and SGLang on a
   # GPU server observed by validation (ADR-079). The serve command is a
   # first-class representation: exported by the deployment's own renderer,
@@ -12535,6 +12653,13 @@ components:
           description: >-
             GPU memory reported by the driver in MiB (a unified-memory
             machine reports the shared pool).
+        hf_token_set:
+          type: boolean
+          readOnly: true
+          description: >-
+            A per-server Hugging Face token is stored (ADR-081). Write-only:
+            set/replace/clear via PUT /servers/{uuid}/hf-token, never read
+            back.
         edge_server_uuid:
           type: string
           nullable: true

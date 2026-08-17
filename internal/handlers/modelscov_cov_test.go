@@ -173,6 +173,54 @@ func TestModelscovCommandAndCredentials(t *testing.T) {
 	})
 }
 
+func TestModelscovServerHFSurface(t *testing.T) {
+	t.Run("the token is stored enveloped, cleared explicitly, never echoed", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.SetServerHFToken(rec, rescovReq(http.MethodPut, "/servers/"+fixtureUUID+"/hf-token",
+			`{"token":"hf_secret_value"}`), fixtureUUID)
+		rescovWant(t, rec, http.StatusNoContent)
+		if rec.Body.Len() != 0 {
+			t.Fatalf("the token endpoint must echo nothing: %s", rec.Body.String())
+		}
+		for _, arg := range db.lastArgs["SetServerHFToken"] {
+			if b, ok := arg.([]byte); ok && strings.Contains(string(b), "hf_secret_value") {
+				t.Fatal("the token reached the store in plaintext")
+			}
+		}
+		rec = httptest.NewRecorder()
+		a.SetServerHFToken(rec, rescovReq(http.MethodPut, "/servers/"+fixtureUUID+"/hf-token",
+			`{"token":""}`), fixtureUUID)
+		rescovWant(t, rec, http.StatusNoContent)
+	})
+	t.Run("deleting is always explicit — exactly one of model_id or all", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.DeleteServerHFCache(rec, rescovReq(http.MethodDelete, "/servers/"+fixtureUUID+"/hf-cache", ``),
+			fixtureUUID, api.DeleteServerHFCacheParams{})
+		rescovWant(t, rec, http.StatusBadRequest)
+		rec = httptest.NewRecorder()
+		both := true
+		model := "org/name"
+		a.DeleteServerHFCache(rec, rescovReq(http.MethodDelete, "/servers/"+fixtureUUID+"/hf-cache", ``),
+			fixtureUUID, api.DeleteServerHFCacheParams{ModelId: &model, All: &both})
+		rescovWant(t, rec, http.StatusBadRequest)
+	})
+	t.Run("cache operations need the agent channel", func(t *testing.T) {
+		// rescov wires no AgentRPC: the nil-safe resolution answers 409 —
+		// exactly what a disconnected agent answers in production.
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.ListServerHFCache(rec, rescovReq(http.MethodGet, "/servers/"+fixtureUUID+"/hf-cache", ``), fixtureUUID)
+		rescovWant(t, rec, http.StatusConflict)
+		rec = httptest.NewRecorder()
+		model := "org/name"
+		a.DeleteServerHFCache(rec, rescovReq(http.MethodDelete, "/servers/"+fixtureUUID+"/hf-cache", ``),
+			fixtureUUID, api.DeleteServerHFCacheParams{ModelId: &model})
+		rescovWant(t, rec, http.StatusConflict)
+	})
+}
+
 func TestModelscovParseAndSearch(t *testing.T) {
 	t.Run("a pasted command parses into the two tiers", func(t *testing.T) {
 		a, _ := rescovAPI(t)

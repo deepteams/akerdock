@@ -39,6 +39,7 @@ type TabId =
   | 'proxy'
   | 'certificates'
   | 'settings'
+  | 'huggingface'
   | 'cleanup'
   | 'terminal'
   | 'danger';
@@ -51,6 +52,7 @@ const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'proxy', label: 'Proxy' },
   { id: 'certificates', label: 'Certificates' },
   { id: 'settings', label: 'Settings' },
+  { id: 'huggingface', label: 'Hugging Face' },
   { id: 'cleanup', label: 'Cleanup' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'danger', label: 'Danger' },
@@ -775,6 +777,106 @@ const TABS: readonly { id: TabId; label: string }[] = [
               </akd-card>
             }
 
+            @case ('huggingface') {
+              <akd-card title="Hugging Face token">
+                <p class="akd-muted intro">
+                  Used by this server's model containers for gated downloads — it wins over the
+                  instance-wide token. Write-only: set, replace or clear; it is never shown again.
+                </p>
+                <form class="form" (ngSubmit)="saveHFToken()">
+                  <div class="row">
+                    <input
+                      name="hfToken"
+                      class="akd-input akd-input--mono grow"
+                      type="password"
+                      autocomplete="off"
+                      [placeholder]="srv.hf_token_set ? 'A token is stored — type to replace it' : 'hf_…'"
+                      [(ngModel)]="hfToken"
+                      [disabled]="busy()"
+                    />
+                    <button
+                      class="akd-btn akd-btn--primary"
+                      type="submit"
+                      [disabled]="busy() || !hfToken.trim()"
+                    >
+                      Save
+                    </button>
+                    @if (srv.hf_token_set) {
+                      <button
+                        class="akd-btn akd-btn--secondary"
+                        type="button"
+                        (click)="clearHFToken()"
+                        [disabled]="busy()"
+                      >
+                        Clear
+                      </button>
+                    }
+                  </div>
+                </form>
+              </akd-card>
+
+              <akd-card title="Weights cache">
+                <p class="akd-muted intro">
+                  The shared cache every model on this server reads — a stop or a delete never
+                  touches it, so reclaiming space is your explicit act here. A running model keeps
+                  serving from memory and re-downloads at its next start.
+                </p>
+                @if (hfCacheError(); as message) {
+                  <p class="akd-error" role="alert">{{ message }}</p>
+                }
+                @if (hfCache(); as cache) {
+                  @if (cache.data.length === 0) {
+                    <p class="akd-muted">The cache is empty.</p>
+                  } @else {
+                    <table class="akd-table">
+                      <caption class="sr-only">
+                        Cached model weights on this server, largest first
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">Model</th>
+                          <th scope="col">Size</th>
+                          <th scope="col"><span class="sr-only">Actions</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (entry of cache.data; track entry.model_id) {
+                          <tr>
+                            <td class="akd-mono">{{ entry.model_id }}</td>
+                            <td class="akd-mono">{{ entry.size_mb }} MiB</td>
+                            <td>
+                              <button
+                                class="akd-btn akd-btn--danger akd-btn--sm"
+                                type="button"
+                                (click)="deleteHFModel(entry.model_id)"
+                                [disabled]="busy()"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                    <div class="row">
+                      <span class="akd-muted">Total: {{ cache.total_mb }} MiB</span>
+                      <span class="grow"></span>
+                      <button
+                        class="akd-btn akd-btn--danger"
+                        type="button"
+                        (click)="purgeHFCache()"
+                        [disabled]="busy()"
+                      >
+                        Empty the cache
+                      </button>
+                    </div>
+                  }
+                } @else {
+                  <p class="akd-muted">Reading the cache on the server…</p>
+                }
+              </akd-card>
+            }
+
             @case ('cleanup') {
               <akd-card title="Automated cleanup">
                 <p class="akd-muted intro">
@@ -1098,11 +1200,18 @@ export class ServerDetailComponent {
    * server is loaded every tab stays listed, so a deep link is not dropped. */
   protected readonly tabs = computed(() => {
     const srv = this.server();
-    return TABS.filter((t) => t.id !== 'proxy' || !srv?.is_build_server);
+    return TABS.filter(
+      (t) =>
+        (t.id !== 'proxy' || !srv?.is_build_server) &&
+        // The Hugging Face tab follows the GPU (ADR-081): the weights cache
+        // and the token only mean something on a server that serves models.
+        (t.id !== 'huggingface' || !!srv?.gpu_name),
+    );
   });
 
   protected selectTab(id: TabId): void {
     if (this.tab() === id) return;
+    if (id === 'huggingface') void this.loadHFCache();
     void this.router.navigate([], {
       relativeTo: this.activatedRoute,
       queryParams: { tab: id === 'overview' ? null : id },
@@ -1199,6 +1308,14 @@ export class ServerDetailComponent {
       const wanted = this.tabParam();
       this.tab.set(this.tabs().find((t) => t.id === wanted)?.id ?? TABS[0].id);
     });
+    // The HF cache is read lazily, whichever way the tab was reached — a
+    // click or a deep link — and only once per visit (ADR-081: the listing
+    // starts a one-shot container on the server).
+    effect(() => {
+      if (this.tab() === 'huggingface' && !this.hfCache()) {
+        untracked(() => void this.loadHFCache());
+      }
+    });
   }
 
   protected ts(line: LogLine): string {
@@ -1274,6 +1391,95 @@ export class ServerDetailComponent {
       this.proxyLogs.set(page.data);
     } catch (err) {
       this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  // --- Hugging Face tab (ADR-081) ---------------------------------------
+  protected hfToken = '';
+  protected readonly hfCache = signal<{
+    data: { model_id: string; size_mb: number }[];
+    total_mb: number;
+  } | null>(null);
+  protected readonly hfCacheError = signal<string | null>(null);
+
+  protected async loadHFCache(): Promise<void> {
+    this.hfCacheError.set(null);
+    this.hfCache.set(null);
+    try {
+      this.hfCache.set(await this.api.client().listServerHFCache(this.uuid()));
+    } catch (err) {
+      this.hfCacheError.set(ApiService.describe(err));
+    }
+  }
+
+  protected async saveHFToken(): Promise<void> {
+    if (!this.hfToken.trim()) return;
+    this.busy.set(true);
+    try {
+      await this.api.client().setServerHFToken(this.uuid(), { token: this.hfToken.trim() });
+      this.hfToken = '';
+      this.notice.set('Token stored — this server now authenticates its downloads with it.');
+      await this.refresh();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async clearHFToken(): Promise<void> {
+    this.busy.set(true);
+    try {
+      await this.api.client().setServerHFToken(this.uuid(), { token: '' });
+      this.notice.set('Token cleared — downloads fall back to the instance token, if any.');
+      await this.refresh();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async deleteHFModel(modelId: string): Promise<void> {
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete cached weights',
+        message: `Delete the cached weights of ${modelId}? A model using them re-downloads at its next start.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
+    this.busy.set(true);
+    try {
+      await this.api.client().deleteServerHFCache(this.uuid(), { model_id: modelId });
+      await this.loadHFCache();
+    } catch (err) {
+      this.hfCacheError.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async purgeHFCache(): Promise<void> {
+    if (
+      !(await this.confirm.ask({
+        title: 'Empty the weights cache',
+        message:
+          'Delete every cached model on this server? Each model re-downloads its weights at its next start.',
+        confirmLabel: 'Empty the cache',
+      }))
+    ) {
+      return;
+    }
+    this.busy.set(true);
+    try {
+      await this.api.client().deleteServerHFCache(this.uuid(), { all: true });
+      await this.loadHFCache();
+    } catch (err) {
+      this.hfCacheError.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);
     }

@@ -72,6 +72,9 @@ func modelrunFixture(t *testing.T, engine store.InferenceEngine, shmMB *int32) (
 	t.Helper()
 	q, keyring, logger, db := prevjobsDeps(t)
 	db.strs["GetServerByID"] = "192.168.10.20"
+	// The server row's bytea columns must scan as SQL NULL: a default-blob
+	// hf_token_enc would fail decryption instead of falling back (ADR-081).
+	db.blobs["GetServerByID"] = nil
 	uuid := pguuid.MustParse(jobFixtureUUID)
 	enc := prevjobsEncrypt(t, keyring, "models", "api_key_enc", []byte("akm_unit_key"))
 	row := store.GetModelByIDRow{

@@ -1396,6 +1396,22 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/scheduled-tasks/${uuid}`);
   }
 
+  // --- server Hugging Face surface (ADR-081) ---------------------------------------------------
+
+  setServerHFToken(serverUuid: string, body: { token: string }) {
+    return this.request<void>('PUT', `/servers/${serverUuid}/hf-token`, { body });
+  }
+
+  listServerHFCache(serverUuid: string) {
+    type Response =
+      paths['/servers/{server_uuid}/hf-cache']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/servers/${serverUuid}/hf-cache`);
+  }
+
+  deleteServerHFCache(serverUuid: string, query: { model_id?: string; all?: boolean }) {
+    return this.request<void>('DELETE', `/servers/${serverUuid}/hf-cache`, { query });
+  }
+
   // --- models (inference — ADR-080) ------------------------------------------------------------
 
   listModels(query?: { cursor?: string; limit?: number }) {

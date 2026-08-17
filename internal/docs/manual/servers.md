@@ -64,6 +64,18 @@ hosts the application — nothing about the app moves.
 - The Certificates tab lists what the proxy actually serves, with expiry, and can force a renewal.
 - Routed domains shows every FQDN the server answers for — the fastest way to find a stale route.
 
+## Hugging Face on a GPU server
+
+A server whose validation observed a GPU gains a **Hugging Face** tab:
+
+- **Token** — used by this server's model containers for gated downloads; it wins over the
+  instance-wide `AKERDOCK_HF_TOKEN`. Write-only: set it, replace it, clear it — it is never
+  shown again.
+- **Weights cache** — the one cache every model on this server shares. Stopping or deleting
+  a model never touches it; reclaiming space is your explicit act here, per model or all at
+  once. A model whose weights you delete keeps serving from memory and re-downloads at its
+  next start.
+
 ## Cleanup and adoption
 
 - **Automated cleanup** reclaims disk on a threshold or a schedule, never during a deployment, and only on resources the platform manages.

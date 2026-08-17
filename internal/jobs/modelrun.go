@@ -244,8 +244,13 @@ func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row 
 	}
 
 	env := []string{"HF_HOME=/root/.cache/huggingface"}
-	if h.HFToken != "" {
-		env = append(env, "HF_TOKEN="+h.HFToken)
+	// The server's own token wins over the instance fallback (ADR-081).
+	hfToken, err := ModelHFToken(h.Keyring, server, h.HFToken)
+	if err != nil {
+		return err
+	}
+	if hfToken != "" {
+		env = append(env, "HF_TOKEN="+hfToken)
 	}
 
 	config := &container.Config{

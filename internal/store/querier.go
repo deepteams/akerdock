@@ -1220,6 +1220,10 @@ type Querier interface {
 	SetServerCA(ctx context.Context, arg SetServerCAParams) error
 	// Scheduler-owned: never bumps `version` (not a user edit).
 	SetServerCleanupSchedule(ctx context.Context, arg SetServerCleanupScheduleParams) error
+	// The ADR-081 per-server token: NULL clears it, and nothing ever selects it
+	// back out on its own — it is decrypted only where it is used (the model
+	// container env).
+	SetServerHFToken(ctx context.Context, arg SetServerHFTokenParams) error
 	SetServerStatus(ctx context.Context, arg SetServerStatusParams) error
 	SetServiceAccessBasicAuth(ctx context.Context, arg SetServiceAccessBasicAuthParams) error
 	SetServiceAccessProtection(ctx context.Context, arg SetServiceAccessProtectionParams) error

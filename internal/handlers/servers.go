@@ -73,6 +73,7 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 		DockerVersion:        s.DockerVersion,
 		GpuName:              s.GpuName,
 		GpuMemoryMb:          gpuMemoryMB,
+		HfTokenSet:           ptr(len(s.HfTokenEnc) > 0),
 		CleanupEnabled:       ptr(s.CleanupEnabled),
 		CleanupCron:          s.CleanupCron,
 		CleanupPruneVolumes:  ptr(s.CleanupPruneVolumes),

@@ -3347,6 +3347,7 @@ type Server struct {
 	EdgeServerID                 *int64
 	GpuName                      *string
 	GpuMemoryMb                  *int32
+	HfTokenEnc                   []byte
 }
 
 type Service struct {

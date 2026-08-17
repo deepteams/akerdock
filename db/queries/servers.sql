@@ -173,6 +173,12 @@ SELECT * FROM servers
 WHERE team_id = $1 AND is_build_server AND status = 'ready' AND deleted_at IS NULL
 ORDER BY id;
 
+-- name: SetServerHFToken :exec
+-- The ADR-081 per-server token: NULL clears it, and nothing ever selects it
+-- back out on its own — it is decrypted only where it is used (the model
+-- container env).
+UPDATE servers SET hf_token_enc = sqlc.narg(hf_token_enc), updated_at = now() WHERE id = $1;
+
 -- name: SetServerCA :exec
 UPDATE servers SET ca_cert = $2, ca_key_enc = $3, updated_at = now() WHERE id = $1;
 
