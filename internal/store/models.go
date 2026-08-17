@@ -2553,6 +2553,7 @@ type Domain struct {
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
 	IngressEndpointID  *int64
+	ModelID            *int64
 }
 
 type Environment struct {

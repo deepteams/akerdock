@@ -147,6 +147,13 @@ func (a *API) modelToAPI(r *http.Request, row modelRow) api.Model {
 	if row.Model.ShmSizeMb != nil {
 		m.ShmSizeMb = ptr(int(*row.Model.ShmSizeMb))
 	}
+	if rows, err := a.Store.ListDomainsForModel(r.Context(), ptr(row.Resource.ID)); err == nil {
+		list := make([]string, 0, len(rows))
+		for _, d := range rows {
+			list = append(list, formatDomain(d))
+		}
+		m.Domains = &list
+	}
 	// The queued-or-running lifecycle job, when one exists: what the page
 	// shows, links to, and lets the operator cancel. Best effort — no job is
 	// simply no banner.
@@ -233,6 +240,8 @@ func (a *API) CreateModel(w http.ResponseWriter, r *http.Request, params api.Cre
 	if body.MemoryFraction != nil && (*body.MemoryFraction <= 0 || *body.MemoryFraction > 1) {
 		details = append(details, api.ErrorDetail{Field: ptr("memory_fraction"), Code: ptr("out_of_range"), Message: "memory_fraction must be in (0, 1]"})
 	}
+	domainSpecs, domainDetails := parseModelDomains(body.Domains)
+	details = append(details, domainDetails...)
 	if len(details) > 0 {
 		httpapi.WriteValidationError(w, r, details)
 		return
@@ -352,6 +361,9 @@ func (a *API) CreateModel(w http.ResponseWriter, r *http.Request, params api.Cre
 		a.internalError(w, r, "create model", err)
 		return
 	}
+	if !a.insertModelDomains(w, r, qtx, resource.ID, domainSpecs) {
+		return
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		a.internalError(w, r, "create model", err)
 		return
@@ -366,6 +378,12 @@ func (a *API) CreateModel(w http.ResponseWriter, r *http.Request, params api.Cre
 		if _, err := a.enqueueModelJob(r, id, resource.ID, resource.Uuid, jobs.TypeModelProvision, "provision", 0); err != nil {
 			a.Logger.Warn("instant start failed to enqueue", "error", err)
 		}
+	}
+	// After the instant start: the routing job shares the deploy lock key, and
+	// a queued routing entry would trip the busy guard the provision enqueue
+	// goes through.
+	if len(domainSpecs) > 0 {
+		a.enqueueModelRouting(r, id, resource.ID, resource.Uuid, server.ID, resource.Version)
 	}
 	a.recordAudit(r, id, "model.create", "model", resource.Uuid)
 	w.Header().Set("ETag", etagFor(resource.Version))
@@ -476,6 +494,12 @@ func (a *API) UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid api.
 			return
 		}
 	}
+	domainsChanged := patch.Has("domains")
+	domainSpecs, domainDetails := parseModelDomains(body.Domains)
+	if domainsChanged && len(domainDetails) > 0 {
+		httpapi.WriteValidationError(w, r, domainDetails)
+		return
+	}
 
 	tx, err := a.Pool.Begin(r.Context())
 	if err != nil {
@@ -505,6 +529,15 @@ func (a *API) UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid api.
 		a.internalError(w, r, "update model", err)
 		return
 	}
+	if domainsChanged {
+		if err := qtx.DeleteDomainsForModel(r.Context(), ptr(row.Resource.ID)); err != nil {
+			a.internalError(w, r, "update model", err)
+			return
+		}
+		if !a.insertModelDomains(w, r, qtx, row.Resource.ID, domainSpecs) {
+			return
+		}
+	}
 	if err := tx.Commit(r.Context()); err != nil {
 		a.internalError(w, r, "update model", err)
 		return
@@ -514,6 +547,11 @@ func (a *API) UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid api.
 	if err != nil {
 		a.internalError(w, r, "reload model", err)
 		return
+	}
+	// Domains regenerate the routing immediately (OpenAPI updateModel) —
+	// including down to an empty set, which removes the file.
+	if domainsChanged {
+		a.enqueueModelRouting(r, id, row.Resource.ID, row.Resource.Uuid, row.Model.ServerID, updated.Resource.Version)
 	}
 	a.recordAudit(r, id, "model.update", "model", row.Resource.Uuid)
 	w.Header().Set("ETag", etagFor(updated.Resource.Version))
@@ -636,6 +674,83 @@ func (a *API) modelLifecycle(w http.ResponseWriter, r *http.Request, modelUuid, 
 	}
 	a.recordAudit(r, id, "model."+action, "model", row.Resource.Uuid)
 	writeJobAccepted(w, job)
+}
+
+// parseModelDomains validates the §4.2 element forms for a model: fqdn and
+// fqdn/path. A :port element is refused — a model always routes to its single
+// engine port (ADR-080); nil input means "not provided" and parses to nothing.
+func parseModelDomains(raw *[]string) ([]domainSpec, []api.ErrorDetail) {
+	if raw == nil {
+		return nil, nil
+	}
+	var specs []domainSpec
+	var details []api.ErrorDetail
+	for _, s := range *raw {
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		spec, err := parseDomain(s)
+		if err != nil {
+			details = append(details, api.ErrorDetail{Field: ptr("domains"), Code: ptr("invalid"), Message: err.Error()})
+			continue
+		}
+		if spec.TargetPort != nil {
+			details = append(details, api.ErrorDetail{
+				Field: ptr("domains"), Code: ptr("invalid"),
+				Message: fmt.Sprintf("domain %s: a model always routes to its engine port — drop the :%d", spec.FQDN, *spec.TargetPort),
+			})
+			continue
+		}
+		specs = append(specs, spec)
+	}
+	return specs, details
+}
+
+// insertModelDomains registers the model's public routes; ok is false when a
+// (fqdn, path) is already routed by this instance (INV-002) — the 409 has
+// been written.
+func (a *API) insertModelDomains(w http.ResponseWriter, r *http.Request, qtx *store.Queries, resourceID int64, specs []domainSpec) bool {
+	for _, spec := range specs {
+		du, err := pguuid.New()
+		if err != nil {
+			a.internalError(w, r, "create model domain", err)
+			return false
+		}
+		if _, err := qtx.CreateModelDomain(r.Context(), store.CreateModelDomainParams{
+			Uuid: du, ModelID: ptr(resourceID), Fqdn: spec.FQDN, Path: spec.Path,
+		}); err != nil {
+			if isUniqueViolation(err) {
+				httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict, "the domain "+spec.FQDN+spec.Path+" is already routed by this instance")
+				return false
+			}
+			a.internalError(w, r, "create model domain", err)
+			return false
+		}
+	}
+	return true
+}
+
+// enqueueModelRouting regenerates the model's routing immediately after a
+// domain change — the applications' contract — through the shared
+// apply_routing job, on the model's deploy lock key so it serializes with the
+// lifecycle jobs. Deliberately not guarded by errModelBusy: routing must
+// converge even while a start is queued.
+func (a *API) enqueueModelRouting(r *http.Request, id *auth.Identity, resourceID int64, resourceUUID pgtype.UUID, serverID int64, version int32) {
+	server, err := a.Store.GetServerByID(r.Context(), serverID)
+	if err != nil || server.ProxyType != store.ProxyTypeTraefik || server.Status != store.ServerStatusReady {
+		return
+	}
+	lockKey := "deploy:model:" + uuidString(resourceUUID)
+	if _, err := queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
+		Queue:      "deploy",
+		Type:       jobs.TypeApplyRouting,
+		Payload:    jobs.ApplyRoutingPayload{ResourceID: resourceID, Revision: int64(version)},
+		LockKey:    &lockKey,
+		TeamID:     ptr(id.TeamID),
+		ResourceID: ptr(resourceID),
+	}); err != nil {
+		a.Logger.Warn("failed to enqueue model routing regeneration", "error", err)
+	}
 }
 
 // errModelBusy marks "an operation is already queued or running" so the

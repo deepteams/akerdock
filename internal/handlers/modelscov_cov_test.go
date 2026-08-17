@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
 )
@@ -335,5 +337,62 @@ func TestModelscovParseAndSearch(t *testing.T) {
 		rec := httptest.NewRecorder()
 		a.SearchModelHub(rec, rescovReq(http.MethodGet, "/models/search?q=l", ``), api.SearchModelHubParams{Q: ptr("l")})
 		rescovWant(t, rec, http.StatusBadRequest)
+	})
+}
+
+// The optional public domain (ADR-080 §1 routed by ADR-077): validation of
+// the element forms, the immediate routing regeneration, the instance-wide
+// (fqdn, path) uniqueness and the whole-set replacement on update.
+func TestModelscovModelDomains(t *testing.T) {
+	valid := `{"name":"llm","engine":"vllm","model_id":"org/m","project_uuid":"` + fixtureUUID +
+		`","environment_uuid":"` + fixtureUUID + `","server_uuid":"` + fixtureUUID + `","published_port":18001`
+
+	t.Run("a :port element is refused — the engine port is the only target", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.CreateModel(rec, rescovReq(http.MethodPost, "/models", valid+`,"domains":["llm.example.com:8080"]}`), api.CreateModelParams{})
+		rescovWant(t, rec, http.StatusUnprocessableEntity)
+	})
+	t.Run("creation registers the domain and regenerates the routing", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.CreateModel(rec, rescovReq(http.MethodPost, "/models", valid+`,"domains":["llm.example.com"]}`), api.CreateModelParams{})
+		rescovWant(t, rec, http.StatusCreated)
+		if len(db.lastArgs["CreateModelDomain"]) == 0 {
+			t.Fatal("the domain never reached the insert")
+		}
+		var routed bool
+		for _, arg := range db.lastArgs["EnqueueJob"] {
+			if s, ok := arg.(string); ok && strings.Contains(s, "apply_routing") {
+				routed = true
+			}
+		}
+		if !routed {
+			t.Fatalf("routing must regenerate immediately: %v", db.lastArgs["EnqueueJob"])
+		}
+	})
+	t.Run("an fqdn already routed by the instance answers 409 (INV-002)", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		db.errOn["CreateModelDomain"] = &pgconn.PgError{Code: "23505"}
+		rec := httptest.NewRecorder()
+		a.CreateModel(rec, rescovReq(http.MethodPost, "/models", valid+`,"domains":["llm.example.com"]}`), api.CreateModelParams{})
+		rescovWant(t, rec, http.StatusConflict)
+	})
+	t.Run("update replaces the whole set and regenerates", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.UpdateModel(rec, rescovReq(http.MethodPatch, "/models/"+fixtureUUID, `{"domains":["llm2.example.com/api"]}`),
+			fixtureUUID, api.UpdateModelParams{IfMatch: `"1"`})
+		rescovWant(t, rec, http.StatusOK)
+		if db.calls["DeleteDomainsForModel"] == 0 || len(db.lastArgs["CreateModelDomain"]) == 0 {
+			t.Fatalf("the set must be replaced, not appended: calls=%v", db.calls)
+		}
+	})
+	t.Run("an invalid element refuses the update by name", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.UpdateModel(rec, rescovReq(http.MethodPatch, "/models/"+fixtureUUID, `{"domains":["not a domain"]}`),
+			fixtureUUID, api.UpdateModelParams{IfMatch: `"1"`})
+		rescovWant(t, rec, http.StatusUnprocessableEntity)
 	})
 }

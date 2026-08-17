@@ -421,9 +421,48 @@ func (h *ModelRun) lifecycle(ctx context.Context, rt dockerruntime.Runtime, acti
 // volume is deliberately untouched: weights are shared across models
 // (ADR-080 §4) — a model is not the owner of the corpus it read.
 func (h *ModelRun) delete(ctx context.Context, rt dockerruntime.Runtime, row store.GetModelByIDRow, modelUUID string) error {
+	// Routing first, the applications' order: the FQDNs are freed and the
+	// edge relay re-derived before the workload goes.
+	if err := h.removeRouting(ctx, rt, row, modelUUID); err != nil {
+		return fmt.Errorf("could not remove the routing — the model is left untouched, retry once the proxy is healthy: %w", err)
+	}
 	if err := removeNamedContainers(ctx, rt, false, modelUUID); err != nil {
 		return err
 	}
 	_, err := h.Store.SoftDeleteResource(ctx, row.Resource.ID)
 	return err
+}
+
+// removeRouting deletes the model's domains and removes its routing file,
+// which also re-derives the edge relay without them (ADR-077). A model that
+// never had a domain skips the proxy entirely.
+func (h *ModelRun) removeRouting(ctx context.Context, rt dockerruntime.Runtime, row store.GetModelByIDRow, modelUUID string) error {
+	resID := row.Resource.ID
+	domains, err := h.Store.ListDomainsForModel(ctx, &resID)
+	if err != nil || len(domains) == 0 {
+		return err
+	}
+	if err := h.Store.DeleteDomainsForModel(ctx, &resID); err != nil {
+		return err
+	}
+	dest, err := h.Store.GetDestinationByID(ctx, row.Resource.DestinationID)
+	if err != nil {
+		return err
+	}
+	server, err := h.Store.GetServerByID(ctx, dest.ServerID)
+	if err != nil {
+		return err
+	}
+	if server.ProxyType != store.ProxyTypeTraefik {
+		return nil
+	}
+	ops, err := h.HostOps.HostOps(ctx, server.ID)
+	if err != nil {
+		return err
+	}
+	applier := &ProxyApplier{
+		Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network,
+		Edge: &EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+	}
+	return applier.Apply(ctx, modelUUID, "", "")
 }

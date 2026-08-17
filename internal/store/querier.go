@@ -272,6 +272,9 @@ type Querier interface {
 	// Single-use authorization code, PKCE challenge attached (ADR-043 §3).
 	CreateMcpOauthCode(ctx context.Context, arg CreateMcpOauthCodeParams) error
 	CreateMfaChallenge(ctx context.Context, arg CreateMfaChallengeParams) error
+	// A model's public route (ADR-080 §1 / ADR-077). target_port stays NULL: a
+	// model routes to its single engine container port, always.
+	CreateModelDomain(ctx context.Context, arg CreateModelDomainParams) (Domain, error)
 	// Models: first-class inference resources (ADR-080). The API key is
 	// enveloped like a database credential; engine_flags is the ORDERED tier-2
 	// jsonb list; the port and the server are immutable in v1 (a moved model is
@@ -358,6 +361,7 @@ type Querier interface {
 	// pointer so it is never offered as a target.
 	DeleteDeploymentArtifact(ctx context.Context, id int64) error
 	DeleteDomainsForApplication(ctx context.Context, applicationID *int64) error
+	DeleteDomainsForModel(ctx context.Context, modelID *int64) error
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
 	DeleteExpiredMcpOauthCodes(ctx context.Context) error
@@ -801,6 +805,7 @@ type Querier interface {
 	// with nothing pending is not woken up: an empty digest is noise.
 	ListDigestRulesDue(ctx context.Context) ([]ListDigestRulesDueRow, error)
 	ListDomainsForApplication(ctx context.Context, applicationID *int64) ([]Domain, error)
+	ListDomainsForModel(ctx context.Context, modelID *int64) ([]Domain, error)
 	// Enabled plans whose drill window has elapsed — managed databases AND stack
 	// components. A plan that has never been drilled (last_drill_at IS NULL) is
 	// due immediately: the first drill is the one that tells you whether the
@@ -942,9 +947,9 @@ type Querier interface {
 	ListScheduledTasksPage(ctx context.Context, arg ListScheduledTasksPageParams) ([]ListScheduledTasksPageRow, error)
 	ListScimTokensPage(ctx context.Context, teamID int64) ([]ScimToken, error)
 	ListServerDomains(ctx context.Context, serverID int64) ([]ListServerDomainsRow, error)
-	// Every public FQDN a server answers for, across the three places one can
-	// live (ADR-077): application domains, compose component domains, and preview
-	// FQDNs. This is what the edge relay file of that server is rebuilt from —
+	// Every public FQDN a server answers for, across the places one can live
+	// (ADR-077): application domains, compose component domains, model domains
+	// (ADR-080) and preview FQDNs. This is what the edge relay file of that server is rebuilt from —
 	// whole, on every routing apply, so the file can never drift from placements.
 	// Previews are included from `queued` on (ADR-073: the URL answers from the
 	// moment the PR is opened) and drop out at destruction.

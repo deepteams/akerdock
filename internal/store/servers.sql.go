@@ -570,8 +570,7 @@ func (q *Queries) ListReadyServers(ctx context.Context) ([]Server, error) {
 const listServerDomains = `-- name: ListServerDomains :many
 SELECT r.uuid AS resource_uuid, r.resource_type, dom.fqdn, dom.path, dom.target_port
 FROM domains dom
-JOIN applications a ON a.id = dom.application_id
-JOIN resources r ON r.id = a.id
+JOIN resources r ON r.id = coalesce(dom.application_id, dom.model_id)
 JOIN destinations d ON d.id = r.destination_id
 WHERE d.server_id = $1 AND r.deleted_at IS NULL
 ORDER BY r.uuid, dom.fqdn, dom.path
@@ -615,7 +614,7 @@ const listServerRelayFQDNs = `-- name: ListServerRelayFQDNs :many
 SELECT dom.fqdn
 FROM domains dom
 LEFT JOIN service_components sc ON sc.id = dom.service_component_id
-JOIN resources r ON r.id = coalesce(dom.application_id, sc.resource_id)
+JOIN resources r ON r.id = coalesce(dom.application_id, sc.resource_id, dom.model_id)
 JOIN destinations d ON d.id = r.destination_id
 WHERE d.server_id = $1 AND r.deleted_at IS NULL
 UNION
@@ -628,9 +627,9 @@ WHERE d.server_id = $1 AND r.deleted_at IS NULL
 ORDER BY 1
 `
 
-// Every public FQDN a server answers for, across the three places one can
-// live (ADR-077): application domains, compose component domains, and preview
-// FQDNs. This is what the edge relay file of that server is rebuilt from —
+// Every public FQDN a server answers for, across the places one can live
+// (ADR-077): application domains, compose component domains, model domains
+// (ADR-080) and preview FQDNs. This is what the edge relay file of that server is rebuilt from —
 // whole, on every routing apply, so the file can never drift from placements.
 // Previews are included from `queued` on (ADR-073: the URL answers from the
 // moment the PR is opened) and drop out at destruction.

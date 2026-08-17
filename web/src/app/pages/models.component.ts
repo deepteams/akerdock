@@ -315,6 +315,23 @@ type HubModel = components['schemas']['HubModel'];
             </div>
           </div>
 
+          <div class="akd-field">
+            <label class="akd-field__label" for="mo-domain">Public domain (optional)</label>
+            <input
+              id="mo-domain"
+              name="domains"
+              class="akd-input akd-input--mono"
+              placeholder="llm.service.example.com — empty = LAN only"
+              autocomplete="off"
+              [(ngModel)]="domains"
+              [disabled]="busy()"
+            />
+            <span class="akd-field__hint">
+              Routed with HTTPS by the server's proxy — through its edge relay when the
+              server is LAN-only. Several domains: separate with spaces.
+            </span>
+          </div>
+
           @if (preview(); as command) {
             <div class="akd-field">
               <span class="akd-field__label">Command</span>
@@ -492,6 +509,7 @@ export class ModelsComponent {
   protected projectUuid = '';
   protected environmentUuid = '';
   protected instantStart = false;
+  protected domains = '';
 
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -687,10 +705,15 @@ export class ModelsComponent {
         environment_uuid: this.environmentUuid,
         server_uuid: this.serverUuid,
         instant_start: this.instantStart,
+        domains: this.domains
+          .split(/[\s,]+/)
+          .map((d) => d.trim())
+          .filter(Boolean),
       });
       this.name = '';
       this.modelId = '';
       this.pasted = '';
+      this.domains = '';
       this.flags.set([]);
       this.preview.set(null);
       this.creating.set(false);

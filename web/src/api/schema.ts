@@ -5436,6 +5436,8 @@ export interface components {
             shm_size_mb?: number | null;
             /** @description LAN endpoint port on the server; omitted = allocated. */
             published_port?: number | null;
+            /** @description Optional public domains (`fqdn` or `fqdn/path`) routed by the server's managed proxy — through its edge relay when the server is LAN-only (ADR-077). Empty = the model answers only on the server's LAN address. Routes always target the engine port; `fqdn:port` elements are refused. */
+            domains?: string[];
             project_uuid: string;
             environment_uuid: string;
             /** @description Target server — must carry an observed GPU (ADR-079). */
@@ -5457,6 +5459,8 @@ export interface components {
             image_tag?: string | null;
             engine_flags?: components["schemas"]["EngineFlag"][];
             shm_size_mb?: number | null;
+            /** @description Full replacement of the model's public domains. Unlike the other fields, routing is regenerated immediately. */
+            domains?: string[];
         };
         /** @description An inference model resource (ADR-080). */
         Model: {
@@ -5477,8 +5481,10 @@ export interface components {
             engine_flags?: components["schemas"]["EngineFlag"][];
             shm_size_mb?: number | null;
             published_port: number;
-            /** @description OpenAI-compatible base URL on the server's LAN address (`http://<server-host>:<port>/v1`). */
+            /** @description OpenAI-compatible base URL on the server's LAN address (`http://<server-host>:<port>/v1`). With a public domain, the same API also answers on `https://<domain>/v1`. */
             endpoint?: string;
+            /** @description Public domains routed to this model (ADR-077). */
+            domains?: string[];
             project_uuid?: string;
             environment_uuid?: string;
             server_uuid: string;

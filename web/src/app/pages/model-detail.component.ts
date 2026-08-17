@@ -28,6 +28,14 @@ type LogLine = components['schemas']['LogLine'];
 // names the running neighbour and the confirm IS the swap —, the serve
 // command by the deployment's own renderer (masked, revealed under
 // models:credentials), the managed key, and the typed settings.
+/** Split a space/comma-separated domains input into API elements. */
+function splitDomains(raw: string): string[] {
+  return raw
+    .split(/[\s,]+/)
+    .map((d) => d.trim())
+    .filter(Boolean);
+}
+
 @Component({
   selector: 'app-model-detail',
   standalone: true,
@@ -80,8 +88,22 @@ type LogLine = components['schemas']['LogLine'];
             OpenAI-compatible, on the server's LAN address — protected by the managed API key
             the engine itself enforces. A stopped model keeps its endpoint and its key; the
             weights stay in the server's shared cache, so a resume reloads without
-            re-downloading.
+            re-downloading. Add a public domain in Settings to reach it beyond the LAN.
           </p>
+          @for (url of publicUrls(); track url) {
+            <div class="row">
+              <code class="akd-mono">{{ url }}</code>
+              <button
+                class="akd-iconbtn"
+                type="button"
+                aria-label="Copy the public URL"
+                (click)="copy(url)"
+              >
+                <akd-icon name="copy" [size]="14" />
+              </button>
+              <span class="akd-muted">public — HTTPS via the server's proxy</span>
+            </div>
+          }
           <div class="row">
             <code class="akd-mono">{{ mo.endpoint }}</code>
             <button
@@ -245,6 +267,23 @@ type LogLine = components['schemas']['LogLine'];
             flags are read once, when the process starts.
           </p>
           <form class="form" (ngSubmit)="save()">
+            <div class="akd-field">
+              <label class="akd-field__label" for="md-domains">Public domains</label>
+              <input
+                id="md-domains"
+                name="domains"
+                class="akd-input akd-input--mono"
+                placeholder="llm.service.example.com — empty = LAN only"
+                autocomplete="off"
+                [(ngModel)]="domains"
+                [disabled]="busy()"
+              />
+              <span class="akd-field__hint">
+                Routed with HTTPS by the server's proxy — through its edge relay when the
+                server is LAN-only. Several domains: separate with spaces. Unlike the other
+                settings, this applies immediately.
+              </span>
+            </div>
             <div class="akd-field">
               <label class="akd-field__label" for="md-model">Hugging Face model</label>
               <input
@@ -460,6 +499,8 @@ export class ModelDetailComponent {
   protected tensorParallel = 1;
   protected image = '';
   protected shmSizeMb: number | null = null;
+  protected domains = '';
+  private savedDomains = '';
 
   // Runtime console + variables + the active-job poll (this tranche's UX).
   protected readonly logs = signal<LogLine[] | null>(null);
@@ -622,6 +663,13 @@ export class ModelDetailComponent {
     }
   }
 
+  /** The copy-ready public base URLs, one per domain. */
+  protected publicUrls(): string[] {
+    return (this.model()?.domains ?? []).map((d) =>
+      d.includes('/') ? `https://${d}` : `https://${d}/v1`,
+    );
+  }
+
   private setModel(model: Model): void {
     this.model.set(model);
     this.modelId = model.model_id;
@@ -631,6 +679,8 @@ export class ModelDetailComponent {
     this.tensorParallel = model.tensor_parallel_size ?? 1;
     this.image = model.image ?? '';
     this.shmSizeMb = model.shm_size_mb ?? null;
+    this.domains = (model.domains ?? []).join(' ');
+    this.savedDomains = this.domains;
     this.flags.set(model.engine_flags ?? []);
   }
 
@@ -785,6 +835,9 @@ export class ModelDetailComponent {
         tensor_parallel_size: this.tensorParallel,
         image: this.image.trim() || null,
         shm_size_mb: this.shmSizeMb,
+        ...(this.domains.trim() === this.savedDomains.trim()
+          ? {}
+          : { domains: splitDomains(this.domains) }),
         engine_flags: this.flags()
           .filter((flag) => flag.flag.trim() !== '')
           .map((flag) => ({

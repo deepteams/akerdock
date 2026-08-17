@@ -17,7 +17,10 @@ links:
 
 A model is an inference server — vLLM or SGLang — running on a server whose validation
 observed a GPU. It answers an OpenAI-compatible API on the server's LAN address, protected
-by a managed API key the engine itself enforces. The Models section lists every model of the
+by a managed API key the engine itself enforces — and, when you give it a public domain
+(optional, in its settings), on HTTPS through the server's proxy, across the edge relay
+when the server is LAN-only. The domain applies immediately, no restart; search engines
+are always told not to index it. The Models section lists every model of the
 team across projects; the resource itself lives in a project and environment like everything
 else.
 

@@ -4507,7 +4507,10 @@ type Model struct {
 	CreatedAt   time.Time `json:"created_at"`
 	Description *string   `json:"description,omitempty"`
 
-	// Endpoint OpenAI-compatible base URL on the server's LAN address (`http://<server-host>:<port>/v1`).
+	// Domains Public domains routed to this model (ADR-077).
+	Domains *[]string `json:"domains,omitempty"`
+
+	// Endpoint OpenAI-compatible base URL on the server's LAN address (`http://<server-host>:<port>/v1`). With a public domain, the same API also answers on `https://<domain>/v1`.
 	Endpoint        *string       `json:"endpoint,omitempty"`
 	Engine          ModelEngine   `json:"engine"`
 	EngineFlags     *[]EngineFlag `json:"engine_flags,omitempty"`
@@ -4568,7 +4571,10 @@ type ModelCommandPreviewRequestEngine string
 
 // ModelCreate defines model for ModelCreate.
 type ModelCreate struct {
-	Description     *string           `json:"description,omitempty"`
+	Description *string `json:"description,omitempty"`
+
+	// Domains Optional public domains (`fqdn` or `fqdn/path`) routed by the server's managed proxy — through its edge relay when the server is LAN-only (ADR-077). Empty = the model answers only on the server's LAN address. Routes always target the engine port; `fqdn:port` elements are refused.
+	Domains         *[]string         `json:"domains,omitempty"`
 	Engine          ModelCreateEngine `json:"engine"`
 	EngineFlags     *[]EngineFlag     `json:"engine_flags,omitempty"`
 	EnvironmentUuid string            `json:"environment_uuid"`
@@ -4627,7 +4633,10 @@ type ModelParseResultEngine string
 
 // ModelUpdate Engine, server and published port are immutable. Changes take effect at the next start (ADR-080 §5).
 type ModelUpdate struct {
-	Description        *string       `json:"description,omitempty"`
+	Description *string `json:"description,omitempty"`
+
+	// Domains Full replacement of the model's public domains. Unlike the other fields, routing is regenerated immediately.
+	Domains            *[]string     `json:"domains,omitempty"`
 	EngineFlags        *[]EngineFlag `json:"engine_flags,omitempty"`
 	Image              *string       `json:"image,omitempty"`
 	ImageTag           *string       `json:"image_tag,omitempty"`
