@@ -103,14 +103,15 @@ func servalcovValidate(t *testing.T, respond func(string) (string, uint32)) (*Se
 func TestDetectGPU(t *testing.T) {
 	ctx := context.Background()
 
-	probe := func(t *testing.T, smi, runtimes string) gpuFacts {
+	probe := func(t *testing.T, smi, daemonSignals string) gpuFacts {
 		t.Helper()
 		client := servalcovDial(t, func(command string) (string, uint32) {
 			switch {
 			case strings.Contains(command, "nvidia-smi --query-gpu"):
 				return smi, 0
-			case strings.Contains(command, "{{json .Runtimes}}"):
-				return runtimes, 0
+			case strings.Contains(command, "nvidia-container-runtime-hook"):
+				// The combined daemon probe: whatever mechanisms answered.
+				return daemonSignals, 0
 			}
 			return "", 0
 		})
@@ -121,23 +122,35 @@ func TestDetectGPU(t *testing.T) {
 		return facts
 	}
 
-	t.Run("a schedulable GPU records name and memory", func(t *testing.T) {
-		facts := probe(t, "NVIDIA GB10, 122880\n", `{"nvidia":{"path":"/usr/bin/nvidia-container-runtime"},"runc":{}}`)
-		if facts.name == nil || *facts.name != "NVIDIA GB10" ||
-			facts.memoryMB == nil || *facts.memoryMB != 122880 || facts.runtimeMissing {
-			t.Fatalf("facts = %+v", facts)
-		}
-	})
+	// Any ONE of the three delivery mechanisms suffices: the daemon.json
+	// runtime entry, the toolkit hook `--gpus` rides, or a CDI spec (Docker
+	// 28+). Requiring the first alone rejected working DGX setups.
+	for _, signal := range []string{"runtime\n", "hook\n", "cdi\n", "runtime\nhook\ncdi\n"} {
+		t.Run("a schedulable GPU is recorded when the daemon signals "+strings.TrimSpace(signal), func(t *testing.T) {
+			facts := probe(t, "NVIDIA GB10, 122880\n", signal)
+			if facts.name == nil || *facts.name != "NVIDIA GB10" ||
+				facts.memoryMB == nil || *facts.memoryMB != 122880 || facts.runtimeMissing {
+				t.Fatalf("facts = %+v", facts)
+			}
+		})
+	}
 
-	t.Run("a card without the NVIDIA runtime is GPU-less to the platform", func(t *testing.T) {
-		facts := probe(t, "NVIDIA GB10, 122880\n", `{"runc":{}}`)
+	t.Run("a card Docker cannot deliver is GPU-less to the platform", func(t *testing.T) {
+		facts := probe(t, "NVIDIA GB10, 122880\n", "")
 		if facts.name != nil || !facts.runtimeMissing {
 			t.Fatalf("facts = %+v", facts)
 		}
 	})
 
+	t.Run("a unified-memory driver reporting [N/A] keeps the name", func(t *testing.T) {
+		facts := probe(t, "NVIDIA GB10, [N/A]\n", "hook\n")
+		if facts.name == nil || *facts.name != "NVIDIA GB10" || facts.memoryMB != nil {
+			t.Fatalf("facts = %+v", facts)
+		}
+	})
+
 	t.Run("no nvidia-smi means no GPU, cleanly", func(t *testing.T) {
-		facts := probe(t, "", `{"runc":{}}`)
+		facts := probe(t, "", "")
 		if facts.name != nil || facts.runtimeMissing {
 			t.Fatalf("facts = %+v", facts)
 		}

@@ -458,6 +458,12 @@ export class EnvironmentDetailComponent {
       desc: 'Managed — backups, drills, TLS',
       target: '/databases',
     },
+    {
+      icon: 'cpu',
+      title: 'Model',
+      desc: 'vLLM or SGLang on a GPU server (ADR-080)',
+      target: '/models',
+    },
   ] as const;
 
   constructor() {

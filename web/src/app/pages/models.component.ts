@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
@@ -497,6 +497,23 @@ export class ModelsComponent {
 
   constructor() {
     void this.load();
+    // The environment's "New resource" menu lands here with
+    // ?create=1&project=&environment= — the model is then created where the
+    // user already was, the anchor pre-filled instead of defaulted.
+    const params = inject(ActivatedRoute).snapshot.queryParamMap;
+    const project = params.get('project');
+    const environment = params.get('environment');
+    if (params.get('create')) {
+      this.creating.set(true);
+      void this.loadSelectors().then(async () => {
+        if (!project) return;
+        this.projectUuid = project;
+        await this.onProjectChange(project);
+        if (environment && this.environments().some((env) => env.uuid === environment)) {
+          this.environmentUuid = environment;
+        }
+      });
+    }
   }
 
   protected valid(): boolean {

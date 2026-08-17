@@ -83,6 +83,17 @@ const TABS: readonly { id: TabId; label: string }[] = [
         @if (server(); as srv) {
           <akd-status-badge domain="resource" [state]="srv.status" />
           <span class="akd-mono faint">{{ srv.user }}&#64;{{ srv.host }}:{{ srv.port }}</span>
+          @if (srv.gpu_name) {
+            <!-- The ADR-079 fact, where the operator diagnoses: an absent
+                 badge after a validation means the probe saw nothing — the
+                 detect_gpu step of the validation job says exactly why. -->
+            <span class="akd-badge akd-badge--accent akd-badge--mono">
+              GPU {{ srv.gpu_name }}
+              @if (srv.gpu_memory_mb) {
+                · {{ srv.gpu_memory_mb }} MiB
+              }
+            </span>
+          }
         }
         <span class="grow"></span>
         <button

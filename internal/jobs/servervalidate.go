@@ -171,8 +171,10 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Start(ctx, "detect_gpu")
 		rec.Succeed(ctx, fmt.Sprintf("%s (%d MiB)", *gpu.name, orZero(gpu.memoryMB)))
 	case gpu.runtimeMissing:
-		rec.Skip(ctx, "detect_gpu", "a GPU answered nvidia-smi but Docker has no nvidia runtime — "+
-			"install nvidia-container-toolkit and re-validate; until then the server is GPU-less to the platform (ADR-079)")
+		rec.Skip(ctx, "detect_gpu", "a GPU answered nvidia-smi but Docker cannot hand it to containers — "+
+			"no nvidia runtime entry, no toolkit hook, no CDI spec was found: install nvidia-container-toolkit "+
+			"(or `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`) and "+
+			"re-validate; until then the server is GPU-less to the platform (ADR-079)")
 	default:
 		rec.Skip(ctx, "detect_gpu", "no GPU observed")
 	}
@@ -845,13 +847,20 @@ func detectGPU(ctx context.Context, client *sshexec.Client) (gpuFacts, error) {
 	if mem, err := strconv.Atoi(strings.TrimSpace(memPart)); err == nil && mem > 0 {
 		memoryMB = ptr(int32(mem))
 	}
-	// The daemon side: without the nvidia runtime, DeviceRequests are refused
-	// at create time — the card exists and the platform still cannot use it.
-	rt, err := client.Run(ctx, "docker info --format '{{json .Runtimes}}' 2>/dev/null || true")
+	// The daemon side: a DeviceRequest is satisfied through any of THREE
+	// mechanisms, and requiring the daemon.json runtime entry alone rejected
+	// perfectly working setups — `docker run --gpus` needs only the
+	// toolkit's hook, and Docker 28+ satisfies it through CDI specs with no
+	// runtime entry at all. Accept whichever signal is present; refuse only
+	// when none is, because then the create really would fail.
+	rt, err := client.Run(ctx,
+		"docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia && echo runtime; "+
+			"command -v nvidia-container-runtime-hook >/dev/null 2>&1 && echo hook; "+
+			"ls /etc/cdi/*nvidia* /var/run/cdi/*nvidia* >/dev/null 2>&1 && echo cdi; true")
 	if err != nil {
 		return gpuFacts{}, err
 	}
-	if !strings.Contains(rt.Stdout, "nvidia") {
+	if strings.TrimSpace(rt.Stdout) == "" {
 		return gpuFacts{runtimeMissing: true}, nil
 	}
 	return gpuFacts{name: &name, memoryMB: memoryMB}, nil
