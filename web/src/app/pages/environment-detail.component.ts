@@ -462,7 +462,7 @@ export class EnvironmentDetailComponent {
       icon: 'cpu',
       title: 'Model',
       desc: 'vLLM or SGLang on a GPU server (ADR-080)',
-      target: '/models',
+      target: '/models/new',
     },
   ] as const;
 
@@ -564,7 +564,7 @@ export class EnvironmentDetailComponent {
     this.menu.set(false);
     void this.router.navigate([option.target], {
       queryParams: {
-        create: option.target === '/applications/new' ? null : 1,
+        create: option.target.endsWith('/new') ? null : 1,
         project: this.uuid(),
         environment: this.envUuid(),
       },
