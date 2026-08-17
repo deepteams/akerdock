@@ -104,7 +104,10 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 		rec.Fail(ctx, err.Error())
 		return nil, err
 	}
-	applier := &ProxyApplier{Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network}
+	applier := &ProxyApplier{
+		Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network,
+		Edge: &EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+	}
 	if err := applier.Apply(ctx, appUUID, content, ""); err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err

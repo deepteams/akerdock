@@ -3281,6 +3281,7 @@ type Server struct {
 	DnsCredentialID              *int64
 	CleanupNextRunAt             pgtype.Timestamptz
 	CleanupLastRunAt             pgtype.Timestamptz
+	EdgeServerID                 *int64
 }
 
 type Service struct {

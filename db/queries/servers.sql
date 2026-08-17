@@ -1,8 +1,8 @@
 -- Servers (§3, state machine §21.2).
 
 -- name: CreateServer :one
-INSERT INTO servers (team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO servers (team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id, edge_server_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, sqlc.narg(edge_server_id))
 RETURNING *;
 
 -- name: GetServerByUUID :one
@@ -31,6 +31,7 @@ UPDATE servers SET
     ssh_timeout_seconds = $7, private_key_id = $8, is_build_server = $9,
     wildcard_domain = $10, proxy_type = $11, proxy_http_port = $12,
     proxy_https_port = $13, status = $14, dns_credential_id = sqlc.narg(dns_credential_id),
+    edge_server_id = sqlc.narg(edge_server_id),
     cleanup_enabled = sqlc.arg(cleanup_enabled),
     cleanup_cron = sqlc.narg(cleanup_cron),
     cleanup_disk_threshold_pct = sqlc.narg(cleanup_disk_threshold_pct),
@@ -127,6 +128,34 @@ JOIN resources r ON r.id = a.id
 JOIN destinations d ON d.id = r.destination_id
 WHERE d.server_id = $1 AND r.deleted_at IS NULL
 ORDER BY r.uuid, dom.fqdn, dom.path;
+
+-- name: ListServerRelayFQDNs :many
+-- Every public FQDN a server answers for, across the three places one can
+-- live (ADR-077): application domains, compose component domains, and preview
+-- FQDNs. This is what the edge relay file of that server is rebuilt from —
+-- whole, on every routing apply, so the file can never drift from placements.
+-- Previews are included from `queued` on (ADR-073: the URL answers from the
+-- moment the PR is opened) and drop out at destruction.
+SELECT dom.fqdn
+FROM domains dom
+LEFT JOIN service_components sc ON sc.id = dom.service_component_id
+JOIN resources r ON r.id = coalesce(dom.application_id, sc.resource_id)
+JOIN destinations d ON d.id = r.destination_id
+WHERE d.server_id = sqlc.arg(server_id) AND r.deleted_at IS NULL
+UNION
+SELECT p.fqdn
+FROM previews p
+JOIN resources r ON r.id = p.application_id
+JOIN destinations d ON d.id = r.destination_id
+WHERE d.server_id = sqlc.arg(server_id) AND r.deleted_at IS NULL
+  AND p.fqdn IS NOT NULL AND p.status <> 'destroyed'
+ORDER BY 1;
+
+-- name: CountServersUsingEdge :one
+-- How many servers relay through this one (ADR-077): non-zero forbids the
+-- edge itself from designating an edge — no chains.
+SELECT count(*) FROM servers
+WHERE edge_server_id = $1 AND deleted_at IS NULL;
 
 -- name: ListReadyBuildServers :many
 -- The build servers of a team that can actually take a build. A build server

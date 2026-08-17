@@ -155,6 +155,9 @@ type Querier interface {
 	CountResourcesOnServer(ctx context.Context, serverID int64) (int64, error)
 	CountRunningRestoreDrills(ctx context.Context, planID int64) (int64, error)
 	CountRunningTaskExecutions(ctx context.Context, scheduledTaskID int64) (int64, error)
+	// How many servers relay through this one (ADR-077): non-zero forbids the
+	// edge itself from designating an edge — no chains.
+	CountServersUsingEdge(ctx context.Context, edgeServerID *int64) (int64, error)
 	CountServersUsingPrivateKey(ctx context.Context, privateKeyID int64) (int64, error)
 	// How many events this rule swallowed since its last send — an aggregated
 	// alert must be able to say "and 12 others" rather than hide them (ADR-019).
@@ -917,6 +920,13 @@ type Querier interface {
 	ListScheduledTasksPage(ctx context.Context, arg ListScheduledTasksPageParams) ([]ListScheduledTasksPageRow, error)
 	ListScimTokensPage(ctx context.Context, teamID int64) ([]ScimToken, error)
 	ListServerDomains(ctx context.Context, serverID int64) ([]ListServerDomainsRow, error)
+	// Every public FQDN a server answers for, across the three places one can
+	// live (ADR-077): application domains, compose component domains, and preview
+	// FQDNs. This is what the edge relay file of that server is rebuilt from —
+	// whole, on every routing apply, so the file can never drift from placements.
+	// Previews are included from `queued` on (ADR-073: the URL answers from the
+	// moment the PR is opened) and drop out at destruction.
+	ListServerRelayFQDNs(ctx context.Context, serverID int64) ([]string, error)
 	// Server inventory (§3): only managed resources appear here (INV-015).
 	ListServerResourcesPage(ctx context.Context, arg ListServerResourcesPageParams) ([]ListServerResourcesPageRow, error)
 	ListServersPage(ctx context.Context, arg ListServersPageParams) ([]Server, error)

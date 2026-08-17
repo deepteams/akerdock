@@ -5096,8 +5096,11 @@ type Server struct {
 
 	// DockerVersion Docker Engine version detected (≥ 24 required, §3.1).
 	DockerVersion *string `json:"docker_version,omitempty"`
-	Host          string  `json:"host"`
-	IsBuildServer *bool   `json:"is_build_server,omitempty"`
+
+	// EdgeServerUuid Server that answers this server's public routes by SNI passthrough (ADR-077); null when the server serves its own.
+	EdgeServerUuid *string `json:"edge_server_uuid,omitempty"`
+	Host           string  `json:"host"`
+	IsBuildServer  *bool   `json:"is_build_server,omitempty"`
 
 	// IsLocalhost True for the `localhost` server pre-registered at bootstrap (instance-config §6.2) — the machine hosting the instance. Never settable through the API.
 	IsLocalhost *bool `json:"is_localhost,omitempty"`
@@ -5151,6 +5154,9 @@ type ServerCreate struct {
 
 	// DnsCredentialUuid DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01.
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
+
+	// EdgeServerUuid Server that answers this server's public routes (ADR-077), for a server the internet cannot reach directly. The designated edge relays by TLS SNI passthrough — it holds no certificate and no key; certificates, access walls and noindex stay on this server. Must belong to the same team, run a Traefik proxy, and not itself relay through an edge (no chains).
+	EdgeServerUuid *string `json:"edge_server_uuid,omitempty"`
 
 	// Host IP address or FQDN reachable over SSH.
 	Host string `json:"host"`
@@ -5233,7 +5239,10 @@ type ServerUpdate struct {
 	Description         *string `json:"description,omitempty"`
 
 	// DnsCredentialUuid DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01.
-	DnsCredentialUuid *string                `json:"dns_credential_uuid,omitempty"`
+	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
+
+	// EdgeServerUuid Server that answers this server's public routes (ADR-077). An empty string clears it (the server serves its own routes again). Changing it re-renders the server's routing and converges its proxy, without revalidating SSH.
+	EdgeServerUuid    *string                `json:"edge_server_uuid,omitempty"`
 	Host              *string                `json:"host,omitempty"`
 	IsBuildServer     *bool                  `json:"is_build_server,omitempty"`
 	Name              *string                `json:"name,omitempty"`

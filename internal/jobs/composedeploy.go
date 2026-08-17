@@ -900,7 +900,10 @@ func (r *deploymentRun) applyComposePreviewRouting(ctx context.Context, content 
 		routingContent = renderPreviewContent(rg, appUUID, r.d.ID,
 			r.app.Application.PreviewProtection, r.previewAuthHash(ctx), ssoURL, hosts)
 	}
-	applier := &ProxyApplier{Store: r.h.Store, Docker: r.rt, Host: r.hops, Server: r.server, Network: r.dest.Network}
+	applier := &ProxyApplier{
+		Store: r.h.Store, Docker: r.rt, Host: r.hops, Server: r.server, Network: r.dest.Network,
+		Edge: &EdgeSyncer{Store: r.h.Store, Docker: r.h.Docker, Host: r.h.HostOps, Logger: r.h.Logger},
+	}
 	return r.step(ctx, "apply_routing", func() (*sshexec.Result, error) {
 		return nil, applier.Apply(ctx, appUUID, routingContent, "")
 	})
@@ -1616,7 +1619,10 @@ func (r *deploymentRun) switchComponentRouting(ctx context.Context, appUUID, com
 	if err != nil {
 		return err
 	}
-	applier := &ProxyApplier{Store: r.h.Store, Docker: r.rt, Host: r.hops, Server: r.server, Network: r.dest.Network}
+	applier := &ProxyApplier{
+		Store: r.h.Store, Docker: r.rt, Host: r.hops, Server: r.server, Network: r.dest.Network,
+		Edge: &EdgeSyncer{Store: r.h.Store, Docker: r.h.Docker, Host: r.h.HostOps, Logger: r.h.Logger},
+	}
 	return r.step(ctx, name, func() (*sshexec.Result, error) {
 		return nil, applier.Apply(ctx, appUUID, content, expect)
 	})

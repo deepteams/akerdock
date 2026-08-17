@@ -108,7 +108,7 @@ func TestProxyPortPublishArgsIncludesHTTPSUDP(t *testing.T) {
 // not fire on a file that already matches, or every validation would recreate
 // the proxy.
 func TestProxyStaticDriftDecidesRecreation(t *testing.T) {
-	static := proxy.GenerateStatic(80, 443, "ops@example.com", "", nil, 7)
+	static := proxy.GenerateStatic(80, 443, "ops@example.com", "", nil, nil, 7)
 	read := func(fileContent string) *sshexec.Result {
 		return &sshexec.Result{Stdout: proxyStaticBeginMarker + fileContent + proxyStaticEndMarker}
 	}

@@ -189,7 +189,9 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Skip(ctx, "bootstrap_proxy", reason)
 	} else {
 		rec.Start(ctx, "bootstrap_proxy")
-		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops, server, false, h.ControlPlanePort); err != nil {
+		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops,
+			&EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+			server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, "proxy bootstrap failed — retry the validation once the cause is fixed: "+firstLine(err.Error()))
 			return nil, err
 		}
@@ -420,7 +422,7 @@ func proxyBootstrapDecision(server store.Server) (run bool, skipReason string) {
 	}
 }
 
-func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, rt dockerruntime.Runtime, ops hostops.Ops, server store.Server, recreate bool, cpPort int) error {
+func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, rt dockerruntime.Runtime, ops hostops.Ops, edge *EdgeSyncer, server store.Server, recreate bool, cpPort int) error {
 	h := &ServerValidate{Store: q, Keyring: kr}
 	dest, err := h.Store.GetDefaultDestination(ctx, server.ID)
 	if err != nil {
@@ -474,7 +476,11 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 			ports = append(ports, int(*p))
 		}
 	}
-	static := proxy.GenerateStatic(int(server.ProxyHttpPort), int(server.ProxyHttpsPort), email, dnsProvider, ports, server.ID)
+	trustedIPs, err := edgeTrustedIPs(ctx, h.Store, server)
+	if err != nil {
+		return err
+	}
+	static := proxy.GenerateStatic(int(server.ProxyHttpPort), int(server.ProxyHttpsPort), email, dnsProvider, ports, trustedIPs, server.ID)
 
 	// Legacy layout migration (spec amendment: /data/akerdock → FHS
 	// /var/lib/akerdock): the old directory carries acme.json — the Let's
@@ -626,7 +632,7 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		// disk; the control-plane route reconverges on the next validation.
 		return nil
 	}
-	applier := &ProxyApplier{Store: q, Docker: rt, Host: ops, Server: server, Network: dest.Network}
+	applier := &ProxyApplier{Store: q, Docker: rt, Host: ops, Server: server, Network: dest.Network, Edge: edge}
 	if err := applier.Apply(ctx, proxy.ControlPlaneScope, content, ""); err != nil {
 		return fmt.Errorf("instance FQDN routing (%s): %w", proxy.ControlPlaneScope, err)
 	}
@@ -652,7 +658,7 @@ const (
 // start what it finds. Its authority is possession of the host and of the
 // instance's own configuration, never a credential of its own.
 func RepairProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, server store.Server, cpPort int) error {
-	return bootstrapProxy(ctx, q, kr, client, nil, nil, server, false, cpPort)
+	return bootstrapProxy(ctx, q, kr, client, nil, nil, nil, server, false, cpPort)
 }
 
 // proxyStaticDrifted compares the static configuration deployed on the server

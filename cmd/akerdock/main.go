@@ -374,6 +374,9 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeIngressRouting, (&jobs.IngressRouting{
 			Store: q, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort,
 		}).Execute)
+		worker.Register(jobs.TypeEdgeSync, (&jobs.EdgeSync{
+			Store: q, Docker: dockerSource, HostOps: hostSource, Logger: logger,
+		}).Execute)
 		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeDatabaseProvision, jobs.TypeDatabaseStart, jobs.TypeDatabaseStop, jobs.TypeDatabaseRestart, jobs.TypeDatabaseDelete} {
 			worker.Register(t, db.Execute)

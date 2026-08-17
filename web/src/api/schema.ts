@@ -5057,6 +5057,8 @@ export interface components {
              * @default false
              */
             use_sudo: boolean;
+            /** @description Server that answers this server's public routes (ADR-077), for a server the internet cannot reach directly. The designated edge relays by TLS SNI passthrough — it holds no certificate and no key; certificates, access walls and noindex stay on this server. Must belong to the same team, run a Traefik proxy, and not itself relay through an edge (no chains). */
+            edge_server_uuid?: string | null;
             /** @description Private SSH key of the same team (INV-002). */
             private_key_uuid: string;
             /** @default 30 */
@@ -5096,6 +5098,8 @@ export interface components {
             user?: string;
             /** @description Escalate every remote command through non-interactive `sudo -n` (ADR-076); requires a passwordless sudoers entry for the SSH user. Changing it triggers revalidation. */
             use_sudo?: boolean;
+            /** @description Server that answers this server's public routes (ADR-077). An empty string clears it (the server serves its own routes again). Changing it re-renders the server's routing and converges its proxy, without revalidating SSH. */
+            edge_server_uuid?: string | null;
             private_key_uuid?: string;
             ssh_timeout_seconds?: number;
             /** @description DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01. */
@@ -5127,6 +5131,8 @@ export interface components {
             user: string;
             /** @description Every remote command is escalated through non-interactive `sudo -n` (ADR-076, §3.1 non-root contract). */
             use_sudo?: boolean;
+            /** @description Server that answers this server's public routes by SNI passthrough (ADR-077); null when the server serves its own. */
+            edge_server_uuid?: string | null;
             private_key_uuid: string;
             ssh_timeout_seconds?: number;
             /** @description DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01. */

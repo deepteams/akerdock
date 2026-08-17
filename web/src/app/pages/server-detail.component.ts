@@ -711,6 +711,28 @@ const TABS: readonly { id: TabId; label: string }[] = [
                       />
                     </div>
                   </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="sd-edge">Edge server</label>
+                    <div class="akd-select">
+                      <select
+                        id="sd-edge"
+                        name="edgeServer"
+                        class="akd-input"
+                        [(ngModel)]="edgeServerUuid"
+                        [disabled]="busy()"
+                      >
+                        <option value="">Serves its own routes (directly reachable)</option>
+                        @for (candidate of edgeCandidates(); track candidate.uuid) {
+                          <option [value]="candidate.uuid">{{ candidate.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <span class="akd-field__hint">
+                      For a server the internet cannot reach: the edge relays its public domains
+                      by TLS passthrough — certificates, access walls and noindex stay here. The
+                      edge must run a Traefik proxy and cannot itself relay through an edge.
+                    </span>
+                  </div>
                   @if (user.trim() && user.trim() !== 'root') {
                     <label class="akd-check">
                       <input
@@ -1124,9 +1146,22 @@ export class ServerDetailComponent {
   protected port = 22;
   protected user = 'root';
   protected useSudo = false;
+  protected edgeServerUuid = '';
   protected expiringDays: number | null = null;
 
   protected readonly dnsCredentials = signal<DnsCredential[]>([]);
+  // Eligible ADR-077 edges: another server of the team, running a Traefik,
+  // itself not behind an edge. The API re-checks; the filter only keeps the
+  // select honest.
+  protected readonly teamServers = signal<Server[]>([]);
+  protected readonly edgeCandidates = computed(() =>
+    this.teamServers().filter(
+      (candidate) =>
+        candidate.uuid !== this.uuid() &&
+        candidate.proxy_type !== 'none' &&
+        !candidate.edge_server_uuid,
+    ),
+  );
   protected proxyType: 'traefik' | 'none' = 'traefik';
   protected proxyHttpPort = 80;
   protected proxyHttpsPort = 443;
@@ -1247,13 +1282,17 @@ export class ServerDetailComponent {
       this.resources.set(resources);
       this.domains.set(domains.data);
       this.certificates.set(certificates);
-      // Feeds the DNS-01 select of the proxy settings; decorative, must not
-      // block the page.
+      // Feeds the DNS-01 select of the proxy settings and the edge-server
+      // select of the settings tab; decorative, must not block the page.
       try {
-        const creds = await fetchAll((cursor) => client.listDnsCredentials({ limit: 100, cursor }));
+        const [creds, servers] = await Promise.all([
+          fetchAll((cursor) => client.listDnsCredentials({ limit: 100, cursor })),
+          fetchAll((cursor) => client.listServers({ limit: 100, cursor })),
+        ]);
         this.dnsCredentials.set(creds);
+        this.teamServers.set(servers);
       } catch {
-        /* the select simply stays empty */
+        /* the selects simply stay empty */
       }
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -1270,6 +1309,7 @@ export class ServerDetailComponent {
     this.port = server.port;
     this.user = server.user;
     this.useSudo = server.use_sudo ?? false;
+    this.edgeServerUuid = server.edge_server_uuid ?? '';
     this.proxyType = (server.proxy_type as 'traefik' | 'none' | undefined) ?? 'traefik';
     this.proxyHttpPort = server.proxy_http_port ?? 80;
     this.proxyHttpsPort = server.proxy_https_port ?? 443;
@@ -1322,6 +1362,7 @@ export class ServerDetailComponent {
         port: this.port,
         user: this.user.trim(),
         use_sudo: this.user.trim() !== 'root' && this.useSudo,
+        edge_server_uuid: this.edgeServerUuid,
       });
       this.setServer(updated);
       this.notice.set('Settings saved.');
