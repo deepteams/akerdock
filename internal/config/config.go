@@ -125,6 +125,10 @@ type Config struct {
 	// -ldflags. Empty everywhere disables waker provisioning — scale-to-zero then
 	// stays inert with a clear error, never a guessed registry.
 	Image string
+	// HFToken (AKERDOCK_HF_TOKEN) authenticates the Hugging Face Hub — the
+	// dashboard's model search proxy and the engines' gated-model downloads
+	// (ADR-080). Optional; empty stays anonymous.
+	HFToken string
 	// SourceRepo overrides the public repository managed servers rebuild the
 	// agent image from on a source-only install (AKERDOCK_SOURCE_REPO,
 	// ADR-078). Empty uses the canonical repository baked into the binary —
@@ -194,6 +198,7 @@ var envKeys = []string{
 	"AKERDOCK_TERMINAL_MAX_DURATION",
 	"AKERDOCK_IMAGE",
 	"AKERDOCK_SOURCE_REPO",
+	"AKERDOCK_HF_TOKEN",
 	"AKERDOCK_CONFIG_FILE",
 }
 
@@ -365,6 +370,7 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 
 	cfg.Image = get("AKERDOCK_IMAGE")
 	cfg.SourceRepo = get("AKERDOCK_SOURCE_REPO")
+	cfg.HFToken = get("AKERDOCK_HF_TOKEN")
 
 	cfg.WorkerConcurrency = DefaultWorkerConcurrency
 	if v := get("AKERDOCK_WORKER_CONCURRENCY"); v != "" {

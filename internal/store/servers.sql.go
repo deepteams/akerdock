@@ -67,7 +67,7 @@ const createServer = `-- name: CreateServer :one
 
 INSERT INTO servers (team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id, edge_server_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-RETURNING id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id
+RETURNING id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb
 `
 
 type CreateServerParams struct {
@@ -164,12 +164,14 @@ func (q *Queries) CreateServer(ctx context.Context, arg CreateServerParams) (Ser
 		&i.CleanupNextRunAt,
 		&i.CleanupLastRunAt,
 		&i.EdgeServerID,
+		&i.GpuName,
+		&i.GpuMemoryMb,
 	)
 	return i, err
 }
 
 const getServerByID = `-- name: GetServerByID :one
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id FROM servers WHERE id = $1 AND deleted_at IS NULL
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb FROM servers WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetServerByID(ctx context.Context, id int64) (Server, error) {
@@ -229,12 +231,14 @@ func (q *Queries) GetServerByID(ctx context.Context, id int64) (Server, error) {
 		&i.CleanupNextRunAt,
 		&i.CleanupLastRunAt,
 		&i.EdgeServerID,
+		&i.GpuName,
+		&i.GpuMemoryMb,
 	)
 	return i, err
 }
 
 const getServerByUUID = `-- name: GetServerByUUID :one
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id FROM servers WHERE uuid = $1 AND team_id = $2 AND deleted_at IS NULL
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb FROM servers WHERE uuid = $1 AND team_id = $2 AND deleted_at IS NULL
 `
 
 type GetServerByUUIDParams struct {
@@ -299,12 +303,14 @@ func (q *Queries) GetServerByUUID(ctx context.Context, arg GetServerByUUIDParams
 		&i.CleanupNextRunAt,
 		&i.CleanupLastRunAt,
 		&i.EdgeServerID,
+		&i.GpuName,
+		&i.GpuMemoryMb,
 	)
 	return i, err
 }
 
 const listCleanupSchedulableServers = `-- name: ListCleanupSchedulableServers :many
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id FROM servers
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb FROM servers
 WHERE cleanup_enabled AND deleted_at IS NULL AND status = 'ready'
 ORDER BY id
 `
@@ -374,6 +380,8 @@ func (q *Queries) ListCleanupSchedulableServers(ctx context.Context) ([]Server, 
 			&i.CleanupNextRunAt,
 			&i.CleanupLastRunAt,
 			&i.EdgeServerID,
+			&i.GpuName,
+			&i.GpuMemoryMb,
 		); err != nil {
 			return nil, err
 		}
@@ -386,7 +394,7 @@ func (q *Queries) ListCleanupSchedulableServers(ctx context.Context) ([]Server, 
 }
 
 const listReadyBuildServers = `-- name: ListReadyBuildServers :many
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id FROM servers
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb FROM servers
 WHERE team_id = $1 AND is_build_server AND status = 'ready' AND deleted_at IS NULL
 ORDER BY id
 `
@@ -457,6 +465,8 @@ func (q *Queries) ListReadyBuildServers(ctx context.Context, teamID int64) ([]Se
 			&i.CleanupNextRunAt,
 			&i.CleanupLastRunAt,
 			&i.EdgeServerID,
+			&i.GpuName,
+			&i.GpuMemoryMb,
 		); err != nil {
 			return nil, err
 		}
@@ -469,7 +479,7 @@ func (q *Queries) ListReadyBuildServers(ctx context.Context, teamID int64) ([]Se
 }
 
 const listReadyServers = `-- name: ListReadyServers :many
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id FROM servers WHERE deleted_at IS NULL AND status = 'ready'
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb FROM servers WHERE deleted_at IS NULL AND status = 'ready'
 `
 
 // Every server the agent must run on (ADR-052): Docker operations flow
@@ -538,6 +548,8 @@ func (q *Queries) ListReadyServers(ctx context.Context) ([]Server, error) {
 			&i.CleanupNextRunAt,
 			&i.CleanupLastRunAt,
 			&i.EdgeServerID,
+			&i.GpuName,
+			&i.GpuMemoryMb,
 		); err != nil {
 			return nil, err
 		}
@@ -696,7 +708,7 @@ func (q *Queries) ListServerResourcesPage(ctx context.Context, arg ListServerRes
 }
 
 const listServersPage = `-- name: ListServersPage :many
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id FROM servers
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb FROM servers
 WHERE team_id = $1 AND deleted_at IS NULL
   AND ($2::bigint = 0 OR id < $2)
 ORDER BY id DESC
@@ -772,6 +784,8 @@ func (q *Queries) ListServersPage(ctx context.Context, arg ListServersPageParams
 			&i.CleanupNextRunAt,
 			&i.CleanupLastRunAt,
 			&i.EdgeServerID,
+			&i.GpuName,
+			&i.GpuMemoryMb,
 		); err != nil {
 			return nil, err
 		}
@@ -784,7 +798,7 @@ func (q *Queries) ListServersPage(ctx context.Context, arg ListServersPageParams
 }
 
 const listUnvalidatedLocalhostServers = `-- name: ListUnvalidatedLocalhostServers :many
-SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id FROM servers
+SELECT id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at, edge_server_id, gpu_name, gpu_memory_mb FROM servers
 WHERE is_localhost AND deleted_at IS NULL
   AND docker_version IS NULL
   AND status IN ('pending', 'unreachable')
@@ -859,6 +873,8 @@ func (q *Queries) ListUnvalidatedLocalhostServers(ctx context.Context) ([]Server
 			&i.CleanupNextRunAt,
 			&i.CleanupLastRunAt,
 			&i.EdgeServerID,
+			&i.GpuName,
+			&i.GpuMemoryMb,
 		); err != nil {
 			return nil, err
 		}
@@ -912,6 +928,26 @@ func (q *Queries) RecordServerFacts(ctx context.Context, arg RecordServerFactsPa
 		arg.DockerVersion,
 		arg.Status,
 	)
+	return err
+}
+
+const recordServerGPU = `-- name: RecordServerGPU :exec
+UPDATE servers SET gpu_name = $2, gpu_memory_mb = $3,
+    updated_at = now()
+WHERE id = $1
+`
+
+type RecordServerGPUParams struct {
+	ID          int64
+	GpuName     *string
+	GpuMemoryMb *int32
+}
+
+// The ADR-079 facts, written by the validation's detect_gpu step. Nullable on
+// purpose: NULL is "none observed", and a GPU that disappears (driver removed,
+// card moved) must be able to go back to NULL at the next validation.
+func (q *Queries) RecordServerGPU(ctx context.Context, arg RecordServerGPUParams) error {
+	_, err := q.db.Exec(ctx, recordServerGPU, arg.ID, arg.GpuName, arg.GpuMemoryMb)
 	return err
 }
 

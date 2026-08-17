@@ -267,6 +267,11 @@ type Querier interface {
 	// Single-use authorization code, PKCE challenge attached (ADR-043 §3).
 	CreateMcpOauthCode(ctx context.Context, arg CreateMcpOauthCodeParams) error
 	CreateMfaChallenge(ctx context.Context, arg CreateMfaChallengeParams) error
+	// Models: first-class inference resources (ADR-080). The API key is
+	// enveloped like a database credential; engine_flags is the ORDERED tier-2
+	// jsonb list; the port and the server are immutable in v1 (a moved model is
+	// a new model — the weights cache is server-scoped).
+	CreateModelRow(ctx context.Context, arg CreateModelRowParams) error
 	// A deployment that rebuilds nothing (ADR-048): the artifact is the one
 	// already running, the pipeline reruns to apply the current configuration.
 	// `image_digest` pins it when the artifact carries one, so what comes back up
@@ -541,6 +546,8 @@ type Querier interface {
 	// secret, hashed recovery codes, and the short-lived login challenges of a
 	// two-step login.
 	GetMfaFactorForUser(ctx context.Context, userID int64) (MfaFactor, error)
+	GetModelByID(ctx context.Context, id int64) (GetModelByIDRow, error)
+	GetModelByUUID(ctx context.Context, arg GetModelByUUIDParams) (GetModelByUUIDRow, error)
 	GetNotificationChannelByID(ctx context.Context, id int64) (NotificationChannel, error)
 	GetNotificationChannelByUUID(ctx context.Context, arg GetNotificationChannelByUUIDParams) (NotificationChannel, error)
 	GetNotificationCursor(ctx context.Context) (int64, error)
@@ -848,6 +855,9 @@ type Querier interface {
 	// labelled — a disowned resource keeps its labels but is adoptable again.
 	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
 	ListMcpAccessTokensForTeam(ctx context.Context, teamID int64) ([]McpAccessToken, error)
+	// Team-wide, not per environment: the Models section is a transverse view
+	// (ADR-080 §6) — every model of the team with its server and GPU.
+	ListModelsPage(ctx context.Context, arg ListModelsPageParams) ([]ListModelsPageRow, error)
 	// Notifications (§11, ADR-019).
 	ListNotificationChannelsPage(ctx context.Context, arg ListNotificationChannelsPageParams) ([]NotificationChannel, error)
 	ListNotificationRules(ctx context.Context, channelID int64) ([]NotificationRule, error)
@@ -904,6 +914,10 @@ type Querier interface {
 	ListRegistryCredentialsPage(ctx context.Context, arg ListRegistryCredentialsPageParams) ([]RegistryCredential, error)
 	ListRepositoriesForSource(ctx context.Context, gitSourceID int64) ([]Repository, error)
 	ListRestoreDrillsPage(ctx context.Context, arg ListRestoreDrillsPageParams) ([]ListRestoreDrillsPageRow, error)
+	// The soft start-guard of ADR-080 §5: the models on this server, other than
+	// the one starting, that are running by intent or by observation — the set
+	// the confirmation names before offering the one-click swap.
+	ListRunningModelsOnServer(ctx context.Context, arg ListRunningModelsOnServerParams) ([]ListRunningModelsOnServerRow, error)
 	// S3 storages (§7.2, data-dictionary §6.6). Credentials are envelope-encrypted
 	// and never leave the instance (INV-003).
 	ListS3StoragesPage(ctx context.Context, arg ListS3StoragesPageParams) ([]S3Storage, error)
@@ -1001,6 +1015,9 @@ type Querier interface {
 	// crashed: restarting at 1 would collide with the steps already recorded, and
 	// would also erase the history of what the dead worker had done.
 	MaxDeploymentStepSeq(ctx context.Context, deploymentID int64) (int32, error)
+	// Lowest free port in the models range for a server; the unique index stays
+	// the authority against concurrent allocation (§22.3, databases precedent).
+	NextFreeModelPort(ctx context.Context, serverID int64) (int32, error)
 	// Lowest free port in the dynamic range for a server (§6.2); the unique
 	// index remains the authority against concurrent allocation.
 	NextFreePublicPort(ctx context.Context, serverID int64) (int32, error)
@@ -1066,6 +1083,10 @@ type Querier interface {
 	// 20 s would push the wake comparison out of reach forever.
 	RecordPreviewActivity(ctx context.Context, id int64) error
 	RecordServerFacts(ctx context.Context, arg RecordServerFactsParams) error
+	// The ADR-079 facts, written by the validation's detect_gpu step. Nullable on
+	// purpose: NULL is "none observed", and a GPU that disappears (driver removed,
+	// card moved) must be able to go back to NULL at the next validation.
+	RecordServerGPU(ctx context.Context, arg RecordServerGPUParams) error
 	RecordUptimeResult(ctx context.Context, arg RecordUptimeResultParams) error
 	// Built-in MCP server (ADR-043): OAuth 2.1 for remote clients. Everything
 	// here is read-only in effect — a grant only ever reads one team's inventory.
@@ -1319,6 +1340,7 @@ type Querier interface {
 	// delete + declare, which is what it costs everywhere else in the product.
 	UpdateIngressEndpoint(ctx context.Context, arg UpdateIngressEndpointParams) (IngressEndpoint, error)
 	UpdateJobSteps(ctx context.Context, arg UpdateJobStepsParams) error
+	UpdateModelRow(ctx context.Context, arg UpdateModelRowParams) error
 	UpdateNotificationChannel(ctx context.Context, arg UpdateNotificationChannelParams) (int64, error)
 	// Called after every successful assertion: the sign counter moved, and the
 	// clone-detection logic downstream depends on it being persisted.

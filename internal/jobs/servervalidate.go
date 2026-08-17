@@ -151,6 +151,32 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 	}
 	rec.Succeed(ctx, "Docker Engine "+facts.DockerVersion)
 
+	// Step 3.5 — the accelerator (ADR-079). An observed fact like the OS and
+	// the architecture, never a declared one: NULL means "none observed", and
+	// a GPU whose driver went away goes back to NULL here. A GPU the daemon
+	// cannot hand to containers (no NVIDIA runtime) is recorded GPU-less WITH
+	// the fix named — a device the platform cannot schedule onto is not a
+	// device, whatever lspci thinks.
+	gpu, err := detectGPU(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.Store.RecordServerGPU(ctx, store.RecordServerGPUParams{
+		ID: server.ID, GpuName: gpu.name, GpuMemoryMb: gpu.memoryMB,
+	}); err != nil {
+		return nil, err
+	}
+	switch {
+	case gpu.name != nil:
+		rec.Start(ctx, "detect_gpu")
+		rec.Succeed(ctx, fmt.Sprintf("%s (%d MiB)", *gpu.name, orZero(gpu.memoryMB)))
+	case gpu.runtimeMissing:
+		rec.Skip(ctx, "detect_gpu", "a GPU answered nvidia-smi but Docker has no nvidia runtime — "+
+			"install nvidia-container-toolkit and re-validate; until then the server is GPU-less to the platform (ADR-079)")
+	default:
+		rec.Skip(ctx, "detect_gpu", "no GPU observed")
+	}
+
 	if err := h.recordFacts(ctx, server.ID, facts, store.ServerStatusReady, nil); err != nil {
 		return nil, err
 	}
@@ -787,6 +813,55 @@ func (h *ServerValidate) markUnreachable(ctx context.Context, serverID int64, ca
 		return err
 	}
 	return cause
+}
+
+// gpuFacts is what the ADR-079 probe observed: a nil name is "none", and
+// runtimeMissing distinguishes "no card" from "a card the daemon cannot use".
+type gpuFacts struct {
+	name           *string
+	memoryMB       *int32
+	runtimeMissing bool
+}
+
+// detectGPU probes the accelerator and the daemon's ability to hand it to
+// containers. Probe failures are SSH failures — a host without nvidia-smi
+// answers cleanly empty, never with an error.
+func detectGPU(ctx context.Context, client *sshexec.Client) (gpuFacts, error) {
+	res, err := client.Run(ctx,
+		"command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null || true")
+	if err != nil {
+		return gpuFacts{}, err
+	}
+	line := firstLine(strings.TrimSpace(res.Stdout))
+	if line == "" {
+		return gpuFacts{}, nil
+	}
+	namePart, memPart, _ := strings.Cut(line, ",")
+	name := strings.TrimSpace(namePart)
+	if name == "" {
+		return gpuFacts{}, nil
+	}
+	var memoryMB *int32
+	if mem, err := strconv.Atoi(strings.TrimSpace(memPart)); err == nil && mem > 0 {
+		memoryMB = ptr(int32(mem))
+	}
+	// The daemon side: without the nvidia runtime, DeviceRequests are refused
+	// at create time — the card exists and the platform still cannot use it.
+	rt, err := client.Run(ctx, "docker info --format '{{json .Runtimes}}' 2>/dev/null || true")
+	if err != nil {
+		return gpuFacts{}, err
+	}
+	if !strings.Contains(rt.Stdout, "nvidia") {
+		return gpuFacts{runtimeMissing: true}, nil
+	}
+	return gpuFacts{name: &name, memoryMB: memoryMB}, nil
+}
+
+func orZero(v *int32) int32 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func (h *ServerValidate) recordFacts(ctx context.Context, serverID int64, facts *systemFacts, status store.ServerStatus, cause error) error {

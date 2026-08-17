@@ -1,6 +1,6 @@
 # ADR-080 — Models: inference is a first-class resource, and the section that shows it follows the GPU
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-08-17
 - **Related**: [ADR-079](ADR-079-gpu-is-an-observed-fact.md) (the observed GPU fact and the
   typed device request this consumes), [ADR-051](ADR-051-docker-runtime-adapter.md)–ADR-055

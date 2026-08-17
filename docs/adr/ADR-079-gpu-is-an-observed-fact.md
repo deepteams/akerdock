@@ -1,6 +1,6 @@
 # ADR-079 — The GPU is an observed fact of a server, carried typed to the container
 
-- **Status**: Proposed
+- **Status**: Accepted
 - **Date**: 2026-08-17
 - **Related**: [ADR-052](ADR-052-agent-command-channel.md)/[ADR-054](ADR-054-agent-host-ops.md)
   (the typed command channel this rides — unchanged, which is the point),

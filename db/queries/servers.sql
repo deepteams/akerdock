@@ -103,6 +103,14 @@ UPDATE servers SET os_name = $2, architecture = $3, docker_version = $4,
     updated_at = now()
 WHERE id = $1;
 
+-- name: RecordServerGPU :exec
+-- The ADR-079 facts, written by the validation's detect_gpu step. Nullable on
+-- purpose: NULL is "none observed", and a GPU that disappears (driver removed,
+-- card moved) must be able to go back to NULL at the next validation.
+UPDATE servers SET gpu_name = sqlc.narg(gpu_name), gpu_memory_mb = sqlc.narg(gpu_memory_mb),
+    updated_at = now()
+WHERE id = $1;
+
 -- name: CountServersUsingPrivateKey :one
 SELECT count(*) FROM servers WHERE private_key_id = $1 AND deleted_at IS NULL;
 

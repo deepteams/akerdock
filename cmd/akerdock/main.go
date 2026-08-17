@@ -398,6 +398,10 @@ func serveRun(mode string) int {
 		worker.Register(jobs.TypeEdgeSync, (&jobs.EdgeSync{
 			Store: q, Docker: dockerSource, HostOps: hostSource, Logger: logger,
 		}).Execute)
+		model := &jobs.ModelRun{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, HFToken: cfg.HFToken}
+		for _, t := range []string{jobs.TypeModelProvision, jobs.TypeModelStart, jobs.TypeModelStop, jobs.TypeModelRestart, jobs.TypeModelDelete} {
+			worker.Register(t, model.Execute)
+		}
 		db := &jobs.DatabaseRun{Store: q, Keyring: keyring, Docker: dockerSource, HostOps: hostSource, Logger: logger, ControlPlanePort: cfg.InstancePort}
 		for _, t := range []string{jobs.TypeDatabaseProvision, jobs.TypeDatabaseStart, jobs.TypeDatabaseStop, jobs.TypeDatabaseRestart, jobs.TypeDatabaseDelete} {
 			worker.Register(t, db.Execute)
@@ -518,6 +522,7 @@ func serveRun(mode string) int {
 			AgentRPC: agentConns,
 			Version:  version,
 			Logger:   logger,
+			HFToken:  cfg.HFToken,
 
 			TerminalIdleTimeout: cfg.TerminalIdleTimeout,
 			TerminalMaxDuration: cfg.TerminalMaxDuration,

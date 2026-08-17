@@ -3131,6 +3131,210 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List models (team-wide)
+         * @description The transverse view of the Models section (ADR-080 §6): every model of the team with its server, GPU and status.
+         */
+        get: operations["listModels"];
+        put?: never;
+        /**
+         * Create a model
+         * @description Creates an inference model resource (ADR-080). Placement requires a server with an observed GPU (ADR-079); the API key is generated and enveloped. Creation performs no start unless `instant_start=true`.
+         */
+        post: operations["createModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the Hugging Face Hub
+         * @description Live model search proxied by the control plane (ADR-080 §3): fixed host, text-generation models, the instance's HF token applied for gated models. Results fill the model_id field; they never constrain it. An offline instance answers an empty page.
+         */
+        get: operations["searchModelHub"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/parse-command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Parse a serve command into a configuration
+         * @description The import half of ADR-080 §3bis: a pasted `vllm serve` / `sglang launch_server` command becomes the two-tier configuration. Reserved flags are dropped with a notice; nothing else is ever silently discarded. Pure function — nothing is persisted.
+         */
+        post: operations["parseModelCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/{model_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        /** Model detail */
+        get: operations["getModel"];
+        put?: never;
+        post?: never;
+        /**
+         * Delete a model
+         * @description Removes the container. The server-scoped HF cache is untouched — weights are shared across models (ADR-080 §4).
+         */
+        delete: operations["deleteModel"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a model
+         * @description Engine, server and port are immutable. Parameter changes take effect at the next start — serve flags are read once, at process start (ADR-080 §5).
+         */
+        patch: operations["updateModel"];
+        trace?: never;
+    };
+    "/models/{model_uuid}/command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The rendered serve command
+         * @description The export half of ADR-080 §3bis — the deployment's own renderer, in the human form (`vllm serve …`). The API key is masked unless `reveal=true` AND the caller holds models:credentials (audited).
+         */
+        get: operations["getModelCommand"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/{model_uuid}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The endpoint API key
+         * @description The managed key (ADR-080 §2), readable because being put into a client's configuration is its purpose — the databases-credentials precedent, audited on every read.
+         */
+        get: operations["getModelCredentials"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/{model_uuid}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a model
+         * @description Starting while another model runs on the same GPU server answers 409 naming it (ADR-080 §5) — pass `swap=true` to stop it and start this one in a single ordered job, the operator's actual intent.
+         */
+        post: operations["startModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/{model_uuid}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop a model
+         * @description An explicit stop is a state, never a defect (ADR-080 §5): nothing restarts a stopped model behind the operator's back, and the weights stay in the server-scoped cache for the resume.
+         */
+        post: operations["stopModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/{model_uuid}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restart a model */
+        post: operations["restartModel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/service-components/{service_component_uuid}/backups": {
         parameters: {
             query?: never;
@@ -5040,6 +5244,119 @@ export interface components {
             /** Format: date-time */
             readonly updated_at?: string | null;
         };
+        /** @description One tier-2 entry (ADR-080 §1): an upstream engine flag preserved verbatim, in the operator's order. No value means a boolean flag. Reserved flags (--host, --port, --api-key, --download-dir, --hf-token) and the typed knobs' own spellings are refused by name. */
+        EngineFlag: {
+            /** @description The flag as the engine spells it (`--like-this`). */
+            flag: string;
+            value?: string;
+        };
+        ModelCreate: {
+            name: string;
+            description?: string | null;
+            /** @enum {string} */
+            engine: "vllm" | "sglang";
+            /** @description Hugging Face model reference. */
+            model_id: string;
+            served_model_name?: string | null;
+            quantization?: string | null;
+            max_model_len?: number | null;
+            /** @default 1 */
+            tensor_parallel_size: number;
+            /** @description The one memory knob (ADR-080 §1), rendered as the engine's own flag — --gpu-memory-utilization on vLLM, --mem-fraction-static on SGLang. Null uses the engine default. */
+            memory_fraction?: number | null;
+            /** @description Image override. Null uses the per-engine, per-architecture default (a GB10 server needs sm_121a builds). */
+            image?: string | null;
+            image_tag?: string | null;
+            engine_flags?: components["schemas"]["EngineFlag"][];
+            shm_size_mb?: number | null;
+            /** @description LAN endpoint port on the server; omitted = allocated. */
+            published_port?: number | null;
+            project_uuid: string;
+            environment_uuid: string;
+            /** @description Target server — must carry an observed GPU (ADR-079). */
+            server_uuid: string;
+            instant_start?: boolean;
+        };
+        /** @description Engine, server and published port are immutable. Changes take effect at the next start (ADR-080 §5). */
+        ModelUpdate: {
+            name?: string;
+            description?: string | null;
+            model_id?: string;
+            served_model_name?: string | null;
+            quantization?: string | null;
+            max_model_len?: number | null;
+            tensor_parallel_size?: number;
+            memory_fraction?: number | null;
+            image?: string | null;
+            image_tag?: string | null;
+            engine_flags?: components["schemas"]["EngineFlag"][];
+            shm_size_mb?: number | null;
+        };
+        /** @description An inference model resource (ADR-080). */
+        Model: {
+            readonly uuid: string;
+            name: string;
+            description?: string | null;
+            /** @enum {string} */
+            engine: "vllm" | "sglang";
+            model_id: string;
+            served_model_name?: string | null;
+            quantization?: string | null;
+            max_model_len?: number | null;
+            tensor_parallel_size?: number;
+            memory_fraction?: number | null;
+            image?: string | null;
+            image_tag?: string | null;
+            engine_flags?: components["schemas"]["EngineFlag"][];
+            shm_size_mb?: number | null;
+            published_port: number;
+            /** @description OpenAI-compatible base URL on the server's LAN address (`http://<server-host>:<port>/v1`). */
+            endpoint?: string;
+            project_uuid?: string;
+            environment_uuid?: string;
+            server_uuid: string;
+            server_name?: string;
+            server_gpu_name?: string | null;
+            /** @description Desired status (running/stopped). */
+            status: string;
+            observed_status?: components["schemas"]["ObservedStatus"];
+            /** Format: date-time */
+            observed_at?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at?: string;
+            version: number;
+        };
+        ModelCommand: {
+            /** @description The human serve command, by the deployment's renderer. */
+            command: string;
+            /** @description True when the API key is shown as `****`. */
+            masked: boolean;
+        };
+        ModelCredentials: {
+            api_key: string;
+            endpoint: string;
+        };
+        ModelParseResult: {
+            /** @enum {string} */
+            engine: "vllm" | "sglang";
+            model_id: string;
+            served_model_name?: string | null;
+            quantization?: string | null;
+            max_model_len?: number | null;
+            tensor_parallel_size?: number | null;
+            memory_fraction?: number | null;
+            engine_flags: components["schemas"]["EngineFlag"][];
+            /** @description What the import dropped, and why — never silent. */
+            notices: string[];
+        };
+        HubModel: {
+            id: string;
+            downloads?: number | null;
+            likes?: number | null;
+            gated?: boolean | null;
+        };
         ServerCreate: {
             name: string;
             description?: string | null;
@@ -5131,6 +5448,10 @@ export interface components {
             user: string;
             /** @description Every remote command is escalated through non-interactive `sudo -n` (ADR-076, §3.1 non-root contract). */
             use_sudo?: boolean;
+            /** @description GPU observed at validation (ADR-079) — a fact, not a setting. Null means none observed, or a card Docker cannot hand to containers (missing NVIDIA runtime, named in the validation). */
+            readonly gpu_name?: string | null;
+            /** @description GPU memory reported by the driver in MiB (a unified-memory machine reports the shared pool). */
+            readonly gpu_memory_mb?: number | null;
             /** @description Server that answers this server's public routes by SNI passthrough (ADR-077); null when the server serves its own. */
             edge_server_uuid?: string | null;
             private_key_uuid: string;
@@ -6807,6 +7128,8 @@ export interface components {
         DeploymentUuid: string;
         /** @description UUID of the database. */
         DatabaseUuid: string;
+        /** @description UUID of the model. */
+        ModelUuid: string;
         /** @description UUID of the backup plan. */
         BackupPlanUuid: string;
         /** @description UUID of the backup execution. */
@@ -12966,6 +13289,366 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    listModels: {
+        parameters: {
+            query?: {
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of items per page (1 to 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of models. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["Model"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createModel: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h. */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelCreate"];
+            };
+        };
+        responses: {
+            /** @description Model created. */
+            201: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Model"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    searchModelHub: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Hub matches (best effort). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["HubModel"][];
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    parseModelCommand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    command: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Parsed configuration and notices. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelParseResult"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The model. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Model"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deletion accepted — track the job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    updateModel: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`. */
+                "If-Match": components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Updated model. */
+            200: {
+                headers: {
+                    ETag: components["headers"]["ETag"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Model"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getModelCommand: {
+        parameters: {
+            query?: {
+                reveal?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The command. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCommand"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getModelCredentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Endpoint and key. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCredentials"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    startModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": {
+                    /** @description Stop the running model of the same server first. */
+                    swap?: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Start accepted — track the job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    stopModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stop accepted — track the job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    restartModel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Restart accepted — track the job. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
             429: components["responses"]["TooManyRequests"];
         };
     };

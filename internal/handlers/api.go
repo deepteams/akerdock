@@ -106,6 +106,13 @@ type API struct {
 	Version  string
 	Logger   *slog.Logger
 
+	// HFToken (AKERDOCK_HF_TOKEN) authenticates the Hugging Face Hub search
+	// proxy (ADR-080 §3) so gated models appear; empty searches anonymously.
+	HFToken string
+	// hubSearch overrides the Hub search transport in tests; nil uses the
+	// real huggingface.co endpoint.
+	hubSearch func(ctx context.Context, q string) ([]byte, error)
+
 	// Terminal session bounds (§24.4) — AKERDOCK_TERMINAL_IDLE_TIMEOUT and
 	// AKERDOCK_TERMINAL_MAX_DURATION; zero falls back to the defaults.
 	TerminalIdleTimeout time.Duration

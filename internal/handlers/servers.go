@@ -38,6 +38,10 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 			edgeUUID = ptr(uuidString(edge.Uuid))
 		}
 	}
+	var gpuMemoryMB *int
+	if s.GpuMemoryMb != nil {
+		gpuMemoryMB = ptr(int(*s.GpuMemoryMb))
+	}
 	return api.Server{
 		AgentConnected:    ptr(a.Agents.Connected(s.ID)),
 		AgentSeenAt:       agentSeen,
@@ -67,6 +71,8 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 		ObservedAt:           timePtr(s.ObservedAt),
 		Architecture:         arch,
 		DockerVersion:        s.DockerVersion,
+		GpuName:              s.GpuName,
+		GpuMemoryMb:          gpuMemoryMB,
 		CleanupEnabled:       ptr(s.CleanupEnabled),
 		CleanupCron:          s.CleanupCron,
 		CleanupPruneVolumes:  ptr(s.CleanupPruneVolumes),

@@ -139,6 +139,17 @@ Domain families:
 | 29 | `databases:lifecycle` | Start/stop/restart a database | `deploy` |
 | 30 | `databases:credentials` | Reveal connection credentials/URLs (`read:sensitive`) | `read:sensitive` |
 
+#### Models (ADR-080)
+
+| # | Permission | Description | Token map |
+|---|---|---|---|
+| 72 | `models:read` | List/view inference models, masked serve command | `read` |
+| 73 | `models:create` | Create a model (GPU placement guard, ADR-079) | `write` |
+| 74 | `models:update` | Modify a model's typed config and engine flags | `write` |
+| 75 | `models:delete` | Delete a model (the shared HF cache survives) | `write` |
+| 76 | `models:lifecycle` | Start/stop/restart/swap a model | `deploy` |
+| 77 | `models:credentials` | Reveal the endpoint API key and the unmasked command | `read:sensitive` |
+
 #### Services / Compose
 
 | # | Permission | Description | Token map |
@@ -286,6 +297,12 @@ Domain families:
 | `members:manage` | write | ● | ○ | ○ |
 | `members:read` | read | ● | ● | ○ |
 | `metrics:read` | read | ● | ● | ○ |
+| `models:create` | write | ● | ● | ○ |
+| `models:credentials` | read:sensitive | ● | ○ | ○ |
+| `models:delete` | write | ● | ● | ○ |
+| `models:lifecycle` | deploy | ● | ● | ○ |
+| `models:read` | read | ● | ● | ○ |
+| `models:update` | write | ● | ● | ○ |
 | `notifications:manage` | write | ● | ● | ○ |
 | `notifications:read` | read | ● | ● | ○ |
 | `port-forwards:open` | write | ● | ● | ○ |
@@ -653,6 +670,12 @@ diff (§23.4).
 | updateDatabase | write | `databases:update` |
 | deleteDatabase | write | `databases:delete` (dual control if volumes §5) |
 | startDatabase / stopDatabase / restartDatabase | deploy | `databases:lifecycle` |
+| listModels / getModel / getModelCommand / parseModelCommand / searchModelHub | read | `models:read` (unmasked command additionally `models:credentials`) |
+| createModel | write | `models:create` |
+| updateModel | write | `models:update` |
+| deleteModel | write | `models:delete` |
+| startModel / stopModel / restartModel | deploy | `models:lifecycle` |
+| getModelCredentials | read:sensitive | `models:credentials` |
 | listBackupPlans / getBackupPlan / listBackupExecutions | read | `backups:read` |
 | createBackupPlan / updateBackupPlan / deleteBackupPlan / executeBackupPlan | write | `backups:manage` |
 | **restoreBackupExecution** | write | **`backups:restore`** (dual control if non-empty database §5) |

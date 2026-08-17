@@ -97,6 +97,53 @@ func servalcovValidate(t *testing.T, respond func(string) (string, uint32)) (*Se
 	return h, q, db
 }
 
+// The ADR-079 probe, on its three worlds: a schedulable GPU (card + NVIDIA
+// runtime), a card the daemon cannot use (recorded GPU-less, the fix named
+// by the caller), and the ordinary GPU-less host.
+func TestDetectGPU(t *testing.T) {
+	ctx := context.Background()
+
+	probe := func(t *testing.T, smi, runtimes string) gpuFacts {
+		t.Helper()
+		client := servalcovDial(t, func(command string) (string, uint32) {
+			switch {
+			case strings.Contains(command, "nvidia-smi --query-gpu"):
+				return smi, 0
+			case strings.Contains(command, "{{json .Runtimes}}"):
+				return runtimes, 0
+			}
+			return "", 0
+		})
+		facts, err := detectGPU(ctx, client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return facts
+	}
+
+	t.Run("a schedulable GPU records name and memory", func(t *testing.T) {
+		facts := probe(t, "NVIDIA GB10, 122880\n", `{"nvidia":{"path":"/usr/bin/nvidia-container-runtime"},"runc":{}}`)
+		if facts.name == nil || *facts.name != "NVIDIA GB10" ||
+			facts.memoryMB == nil || *facts.memoryMB != 122880 || facts.runtimeMissing {
+			t.Fatalf("facts = %+v", facts)
+		}
+	})
+
+	t.Run("a card without the NVIDIA runtime is GPU-less to the platform", func(t *testing.T) {
+		facts := probe(t, "NVIDIA GB10, 122880\n", `{"runc":{}}`)
+		if facts.name != nil || !facts.runtimeMissing {
+			t.Fatalf("facts = %+v", facts)
+		}
+	})
+
+	t.Run("no nvidia-smi means no GPU, cleanly", func(t *testing.T) {
+		facts := probe(t, "", `{"runc":{}}`)
+		if facts.name != nil || facts.runtimeMissing {
+			t.Fatalf("facts = %+v", facts)
+		}
+	})
+}
+
 // One validation attempt end to end, and the rungs it falls off. The server
 // here routes nothing (proxy_type none), so the bootstrap is skipped by
 // intent rather than by failure — that decision has its own test.

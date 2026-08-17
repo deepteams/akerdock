@@ -689,6 +689,48 @@ func (ns NullGitSourceKind) Value() (driver.Value, error) {
 	return string(ns.GitSourceKind), nil
 }
 
+type InferenceEngine string
+
+const (
+	InferenceEngineVllm   InferenceEngine = "vllm"
+	InferenceEngineSglang InferenceEngine = "sglang"
+)
+
+func (e *InferenceEngine) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InferenceEngine(s)
+	case string:
+		*e = InferenceEngine(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InferenceEngine: %T", src)
+	}
+	return nil
+}
+
+type NullInferenceEngine struct {
+	InferenceEngine InferenceEngine
+	Valid           bool // Valid is true if InferenceEngine is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInferenceEngine) Scan(value interface{}) error {
+	if value == nil {
+		ns.InferenceEngine, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InferenceEngine.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInferenceEngine) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InferenceEngine), nil
+}
+
 type IngressAccess string
 
 const (
@@ -1448,6 +1490,7 @@ const (
 	ResourceTypeApplication ResourceType = "application"
 	ResourceTypeDatabase    ResourceType = "database"
 	ResourceTypeService     ResourceType = "service"
+	ResourceTypeModel       ResourceType = "model"
 )
 
 func (e *ResourceType) Scan(src interface{}) error {
@@ -2823,6 +2866,26 @@ type MfaFactor struct {
 	UpdatedAt          pgtype.Timestamptz
 }
 
+type Model struct {
+	ID                 int64
+	Engine             InferenceEngine
+	ModelID            string
+	ServedModelName    *string
+	Quantization       *string
+	MaxModelLen        *int32
+	TensorParallelSize int32
+	MemoryFraction     *float32
+	Image              *string
+	ImageTag           *string
+	EngineFlags        []byte
+	ApiKeyEnc          []byte
+	ShmSizeMb          *int32
+	PublishedPort      int32
+	ServerID           int64
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
 type NotificationChannel struct {
 	ID               int64
 	Uuid             pgtype.UUID
@@ -3282,6 +3345,8 @@ type Server struct {
 	CleanupNextRunAt             pgtype.Timestamptz
 	CleanupLastRunAt             pgtype.Timestamptz
 	EdgeServerID                 *int64
+	GpuName                      *string
+	GpuMemoryMb                  *int32
 }
 
 type Service struct {
