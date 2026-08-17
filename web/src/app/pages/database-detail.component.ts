@@ -9,7 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { BreadcrumbComponent } from '../../ui/breadcrumb/breadcrumb.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
@@ -38,6 +38,7 @@ type BackupPlan = components['schemas']['BackupPlan'];
 type BackupExecution = components['schemas']['BackupExecution'];
 type RestoreDrill = components['schemas']['RestoreDrill'];
 type S3Storage = components['schemas']['S3Storage'];
+type TabId = 'overview' | 'settings' | 'backups' | 'terminal' | 'danger';
 
 @Component({
   selector: 'app-database-detail',
@@ -125,517 +126,550 @@ type S3Storage = components['schemas']['S3Storage'];
           </p>
         }
 
-        <div class="grid">
-          <akd-card title="Connection">
-            <div class="conn-list">
-              <div>
-                <div class="akd-field__label conn-label">Internal URL</div>
-                <div class="conn">
-                  <code class="akd-mono conn__code" [class.conn__code--masked]="!reveal()">{{
-                    connection(db, db.internal_url)
-                  }}</code>
-                  <button
-                    class="akd-iconbtn akd-iconbtn--bordered"
-                    type="button"
-                    [disabled]="db.is_redacted"
-                    (click)="reveal.set(!reveal())"
-                    [attr.aria-label]="
-                      reveal() ? 'Hide credentials' : 'Reveal credentials (read:sensitive)'
-                    "
-                  >
-                    <akd-icon [name]="reveal() ? 'eye-off' : 'eye'" [size]="15" />
-                  </button>
-                  <button
-                    class="akd-iconbtn akd-iconbtn--bordered"
-                    type="button"
-                    [disabled]="db.is_redacted || !db.internal_url"
-                    (click)="copy(db.internal_url)"
-                    aria-label="Copy internal URL"
-                  >
-                    <akd-icon name="copy" [size]="15" />
-                  </button>
-                </div>
-              </div>
-              @if (db.is_public) {
+        <nav class="akd-tabs" role="tablist" aria-label="Database sections">
+          @for (t of tabs(); track t.id) {
+            <button
+              type="button"
+              class="akd-tab"
+              role="tab"
+              [class.akd-tab--active]="tab() === t.id"
+              [attr.aria-selected]="tab() === t.id"
+              (click)="selectTab(t.id)"
+            >
+              {{ t.label }}
+            </button>
+          }
+        </nav>
+
+        @switch (tab()) {
+          @case ('overview') {
+            <akd-card title="Connection">
+              <div class="conn-list">
                 <div>
-                  <div class="akd-field__label conn-label">External URL</div>
+                  <div class="akd-field__label conn-label">Internal URL</div>
                   <div class="conn">
                     <code class="akd-mono conn__code" [class.conn__code--masked]="!reveal()">{{
-                      connection(db, db.external_url)
+                      connection(db, db.internal_url)
                     }}</code>
                     <button
                       class="akd-iconbtn akd-iconbtn--bordered"
                       type="button"
-                      [disabled]="db.is_redacted || !db.external_url"
-                      (click)="copy(db.external_url)"
-                      aria-label="Copy external URL"
+                      [disabled]="db.is_redacted"
+                      (click)="reveal.set(!reveal())"
+                      [attr.aria-label]="
+                        reveal() ? 'Hide credentials' : 'Reveal credentials (read:sensitive)'
+                      "
+                    >
+                      <akd-icon [name]="reveal() ? 'eye-off' : 'eye'" [size]="15" />
+                    </button>
+                    <button
+                      class="akd-iconbtn akd-iconbtn--bordered"
+                      type="button"
+                      [disabled]="db.is_redacted || !db.internal_url"
+                      (click)="copy(db.internal_url)"
+                      aria-label="Copy internal URL"
                     >
                       <akd-icon name="copy" [size]="15" />
                     </button>
                   </div>
                 </div>
-              }
-              <dl class="akd-dl">
-                <dt>Engine</dt>
-                <dd>{{ db.engine }} ({{ db.image ?? 'default image' }})</dd>
-                <dt>User / database</dt>
-                <dd class="akd-mono">
-                  {{ db.postgres_user ?? '—' }} / {{ db.postgres_db ?? '—' }}
-                </dd>
-                <dt>Password</dt>
-                <!-- Credentials come back null without read:sensitive (INV-003):
-                     the page displays what the API returned, nothing more. -->
-                <dd class="akd-mono">
-                  {{
-                    db.is_redacted
-                      ? '(redacted — needs read:sensitive)'
-                      : reveal()
-                        ? (db.postgres_password ?? '—')
-                        : '••••••••'
-                  }}
-                </dd>
-                <dt>External URL</dt>
-                <dd class="akd-mono">
-                  @if (db.is_public) {
-                    published on port {{ db.public_port ?? '?' }}
-                  } @else {
-                    not public
-                  }
-                </dd>
-                <dt>SSL</dt>
-                <dd>
-                  {{ db.ssl_enabled ? 'enabled (' + (db.ssl_mode ?? 'disable') + ')' : 'disabled' }}
-                </dd>
-              </dl>
-            </div>
-          </akd-card>
-
-          <akd-card title="Settings">
-            <form class="form" (ngSubmit)="save()">
-              <div class="akd-field">
-                <label class="akd-field__label" for="dbd-name">Name</label>
-                <input
-                  id="dbd-name"
-                  name="name"
-                  class="akd-input"
-                  required
-                  [(ngModel)]="name"
-                  [disabled]="busy()"
-                />
+                @if (db.is_public) {
+                  <div>
+                    <div class="akd-field__label conn-label">External URL</div>
+                    <div class="conn">
+                      <code class="akd-mono conn__code" [class.conn__code--masked]="!reveal()">{{
+                        connection(db, db.external_url)
+                      }}</code>
+                      <button
+                        class="akd-iconbtn akd-iconbtn--bordered"
+                        type="button"
+                        [disabled]="db.is_redacted || !db.external_url"
+                        (click)="copy(db.external_url)"
+                        aria-label="Copy external URL"
+                      >
+                        <akd-icon name="copy" [size]="15" />
+                      </button>
+                    </div>
+                  </div>
+                }
+                <dl class="akd-dl">
+                  <dt>Engine</dt>
+                  <dd>{{ db.engine }} ({{ db.image ?? 'default image' }})</dd>
+                  <dt>User / database</dt>
+                  <dd class="akd-mono">
+                    {{ db.postgres_user ?? '—' }} / {{ db.postgres_db ?? '—' }}
+                  </dd>
+                  <dt>Password</dt>
+                  <!-- Credentials come back null without read:sensitive (INV-003):
+                       the page displays what the API returned, nothing more. -->
+                  <dd class="akd-mono">
+                    {{
+                      db.is_redacted
+                        ? '(redacted — needs read:sensitive)'
+                        : reveal()
+                          ? (db.postgres_password ?? '—')
+                          : '••••••••'
+                    }}
+                  </dd>
+                  <dt>External URL</dt>
+                  <dd class="akd-mono">
+                    @if (db.is_public) {
+                      published on port {{ db.public_port ?? '?' }}
+                    } @else {
+                      not public
+                    }
+                  </dd>
+                  <dt>SSL</dt>
+                  <dd>
+                    {{
+                      db.ssl_enabled ? 'enabled (' + (db.ssl_mode ?? 'disable') + ')' : 'disabled'
+                    }}
+                  </dd>
+                </dl>
               </div>
-              <div class="akd-field">
-                <label class="akd-field__label" for="dbd-description">Description</label>
-                <input
-                  id="dbd-description"
-                  name="description"
-                  class="akd-input"
-                  [(ngModel)]="description"
-                  [disabled]="busy()"
-                />
-              </div>
-              <label class="akd-check">
-                <input type="checkbox" name="isPublic" [(ngModel)]="isPublic" [disabled]="busy()" />
-                Publicly reachable
-              </label>
-              @if (isPublic) {
+            </akd-card>
+          }
+          @case ('settings') {
+            <akd-card title="Settings">
+              <form class="form" (ngSubmit)="save()">
                 <div class="akd-field">
-                  <label class="akd-field__label" for="dbd-port">
-                    Public port (empty = assigned automatically)
-                  </label>
+                  <label class="akd-field__label" for="dbd-name">Name</label>
                   <input
-                    id="dbd-port"
-                    name="publicPort"
+                    id="dbd-name"
+                    name="name"
                     class="akd-input"
-                    type="number"
-                    min="1"
-                    max="65535"
-                    [(ngModel)]="publicPort"
+                    required
+                    [(ngModel)]="name"
                     [disabled]="busy()"
                   />
                 </div>
-              }
-              <div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="dbd-description">Description</label>
+                  <input
+                    id="dbd-description"
+                    name="description"
+                    class="akd-input"
+                    [(ngModel)]="description"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <label class="akd-check">
+                  <input
+                    type="checkbox"
+                    name="isPublic"
+                    [(ngModel)]="isPublic"
+                    [disabled]="busy()"
+                  />
+                  Publicly reachable
+                </label>
+                @if (isPublic) {
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="dbd-port">
+                      Public port (empty = assigned automatically)
+                    </label>
+                    <input
+                      id="dbd-port"
+                      name="publicPort"
+                      class="akd-input"
+                      type="number"
+                      min="1"
+                      max="65535"
+                      [(ngModel)]="publicPort"
+                      [disabled]="busy()"
+                    />
+                  </div>
+                }
+                <div>
+                  <button
+                    class="akd-btn akd-btn--primary"
+                    type="submit"
+                    [disabled]="busy() || !name.trim()"
+                  >
+                    Save settings
+                  </button>
+                </div>
+              </form>
+            </akd-card>
+          }
+          @case ('backups') {
+            <akd-card title="Backup plans" [padded]="false" class="section">
+              <span card-actions class="akd-badge akd-badge--mono">{{ plans().length }}</span>
+
+              <form class="row pad" (ngSubmit)="createPlan()">
+                <div class="akd-field grow-field">
+                  <label class="akd-field__label" for="bp-frequency">
+                    Frequency (cron or alias: daily, hourly…)
+                  </label>
+                  <input
+                    id="bp-frequency"
+                    name="frequency"
+                    class="akd-input akd-input--mono"
+                    placeholder="daily"
+                    [(ngModel)]="planForm.frequency"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field grow-field">
+                  <label class="akd-field__label" for="bp-timezone">Timezone</label>
+                  <akd-timezone-select
+                    inputId="bp-timezone"
+                    [(value)]="planForm.timezone"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="bp-retention-count">
+                    Keep at most (0 = unlimited)
+                  </label>
+                  <input
+                    id="bp-retention-count"
+                    name="retentionCount"
+                    class="akd-input"
+                    type="number"
+                    min="0"
+                    [(ngModel)]="planForm.retentionCount"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="bp-retention-days">
+                    Max age, days (0 = unlimited)
+                  </label>
+                  <input
+                    id="bp-retention-days"
+                    name="retentionDays"
+                    class="akd-input"
+                    type="number"
+                    min="0"
+                    [(ngModel)]="planForm.retentionDays"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="akd-field grow-field">
+                  <label class="akd-field__label" for="bp-s3">Upload to S3 (optional)</label>
+                  <div class="akd-select">
+                    <select
+                      id="bp-s3"
+                      name="s3"
+                      class="akd-input"
+                      [(ngModel)]="planForm.s3Uuid"
+                      [disabled]="busy()"
+                    >
+                      <option value="">Local only</option>
+                      @for (s3 of s3Storages(); track s3.uuid) {
+                        <option [value]="s3.uuid">{{ s3.name }} ({{ s3.bucket }})</option>
+                      }
+                    </select>
+                  </div>
+                </div>
                 <button
                   class="akd-btn akd-btn--primary"
                   type="submit"
-                  [disabled]="busy() || !name.trim()"
+                  [disabled]="busy() || !planForm.frequency.trim()"
                 >
-                  Save settings
+                  <akd-icon name="plus" [size]="15" />
+                  Add plan
+                </button>
+              </form>
+
+              @if (plans().length === 0) {
+                <div class="pad">
+                  <akd-empty-state
+                    icon="archive"
+                    title="No backup plan"
+                    message="A database without a backup plan is one incident away from being a memory."
+                  />
+                </div>
+              } @else {
+                <table class="akd-table">
+                  <caption class="sr-only">
+                    Backup plans of this database
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Frequency</th>
+                      <th scope="col">Enabled</th>
+                      <th scope="col">Last run</th>
+                      <th scope="col">Next run</th>
+                      <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (plan of plans(); track plan.uuid) {
+                      <tr>
+                        <td class="akd-mono">
+                          {{ plan.frequency }}
+                          <span class="zone">{{ plan.timezone || 'UTC' }}</span>
+                        </td>
+                        <td>
+                          @if (plan.enabled) {
+                            <span class="akd-badge akd-badge--ok">enabled</span>
+                          } @else {
+                            <span class="akd-badge">disabled</span>
+                          }
+                        </td>
+                        <td>
+                          @if (plan.last_execution_status; as status) {
+                            <akd-status-badge domain="task" [state]="status" />
+                          } @else {
+                            <span class="akd-muted">never</span>
+                          }
+                        </td>
+                        <td>
+                          @if (nextRun(plan); as when) {
+                            <span class="when">{{ when.primary }}</span>
+                            @if (when.secondary) {
+                              <span class="when__local">{{ when.secondary }}</span>
+                            }
+                          } @else {
+                            <span class="akd-muted">—</span>
+                          }
+                        </td>
+                        <td class="right">
+                          <button
+                            class="akd-btn akd-btn--ghost akd-btn--sm"
+                            type="button"
+                            [disabled]="busy()"
+                            (click)="backupNow(plan)"
+                          >
+                            <akd-icon name="archive" [size]="14" />
+                            Backup now
+                          </button>
+                          <button
+                            class="akd-btn akd-btn--ghost akd-btn--sm"
+                            type="button"
+                            [disabled]="busy()"
+                            (click)="drillNow(plan)"
+                          >
+                            Run drill
+                          </button>
+                          <button
+                            class="akd-btn akd-btn--ghost akd-btn--sm"
+                            type="button"
+                            [disabled]="busy()"
+                            (click)="startEditPlan(plan)"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            class="akd-btn akd-btn--ghost akd-btn--sm"
+                            type="button"
+                            [attr.aria-expanded]="expandedPlan() === plan.uuid"
+                            (click)="toggleHistory(plan)"
+                          >
+                            {{ expandedPlan() === plan.uuid ? 'Hide history' : 'History' }}
+                          </button>
+                          <button
+                            class="akd-iconbtn"
+                            type="button"
+                            [disabled]="busy()"
+                            (click)="removePlan(plan)"
+                            aria-label="Delete backup plan"
+                          >
+                            <akd-icon name="trash-2" [size]="15" />
+                          </button>
+                        </td>
+                      </tr>
+                      @if (editingPlan() === plan.uuid) {
+                        <tr>
+                          <td colspan="5">
+                            <form class="row edit-row" (ngSubmit)="saveEditPlan(plan)">
+                              <div class="akd-field grow-field">
+                                <label
+                                  class="akd-field__label"
+                                  [for]="'bpe-frequency-' + plan.uuid"
+                                >
+                                  Frequency
+                                </label>
+                                <input
+                                  [id]="'bpe-frequency-' + plan.uuid"
+                                  name="editFrequency"
+                                  class="akd-input akd-input--mono"
+                                  [(ngModel)]="editPlan.frequency"
+                                  [disabled]="busy()"
+                                />
+                              </div>
+                              <div class="akd-field grow-field">
+                                <label class="akd-field__label" [for]="'bpe-tz-' + plan.uuid">
+                                  Timezone
+                                </label>
+                                <akd-timezone-select
+                                  [inputId]="'bpe-tz-' + plan.uuid"
+                                  [(value)]="editPlan.timezone"
+                                  [disabled]="busy()"
+                                />
+                              </div>
+                              <label class="akd-check">
+                                <input
+                                  type="checkbox"
+                                  name="editEnabled"
+                                  [(ngModel)]="editPlan.enabled"
+                                  [disabled]="busy()"
+                                />
+                                Enabled
+                              </label>
+                              <button
+                                class="akd-btn akd-btn--primary akd-btn--sm"
+                                type="submit"
+                                [disabled]="busy()"
+                              >
+                                Save
+                              </button>
+                              <button
+                                class="akd-btn akd-btn--ghost akd-btn--sm"
+                                type="button"
+                                (click)="editingPlan.set(null)"
+                              >
+                                Cancel
+                              </button>
+                            </form>
+                          </td>
+                        </tr>
+                      }
+                    }
+                  </tbody>
+                </table>
+              }
+            </akd-card>
+
+            @if (expandedPlanObj(); as plan) {
+              <akd-card title="Backups" [padded]="false" class="section">
+                <span card-actions class="akd-badge akd-badge--mono"
+                  >plan {{ plan.frequency }}</span
+                >
+                @if (executions().length === 0) {
+                  <p class="akd-muted pad">No execution yet.</p>
+                } @else {
+                  <table class="akd-table">
+                    <caption class="sr-only">
+                      Backup executions of this plan
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Taken</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">File</th>
+                        <th scope="col">Size</th>
+                        <th scope="col">Destination</th>
+                        <th scope="col" class="right"><span class="sr-only">Actions</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (exec of executions(); track exec.uuid) {
+                        <tr>
+                          <td class="akd-mono akd-muted">{{ exec.created_at }}</td>
+                          <td>
+                            <akd-status-badge domain="task" [state]="exec.status" />
+                            @if (exec.message) {
+                              <span class="akd-muted"> {{ exec.message }}</span>
+                            }
+                          </td>
+                          <td class="akd-mono file" [title]="exec.checksum ?? ''">
+                            {{ exec.filename ?? '—' }}
+                          </td>
+                          <td class="akd-mono akd-muted">{{ size(exec.size_bytes) }}</td>
+                          <td>
+                            @if (destination(exec); as dest) {
+                              <span class="akd-badge akd-badge--mono">{{ dest }}</span>
+                            } @else {
+                              <span class="akd-muted">—</span>
+                            }
+                          </td>
+                          <td class="right">
+                            @if (exec.status === 'succeeded' || exec.status === 'partial') {
+                              <button
+                                class="akd-btn akd-btn--ghost akd-btn--sm"
+                                type="button"
+                                [disabled]="busy()"
+                                (click)="restore(plan, exec)"
+                              >
+                                <akd-icon name="archive-restore" [size]="14" />
+                                Restore
+                              </button>
+                            }
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+              </akd-card>
+
+              <akd-card title="Restore drills" [padded]="false" class="section">
+                @if (drills().length === 0) {
+                  <p class="akd-muted pad">
+                    No drill yet. A backup never restored is not a backup, it is a file.
+                  </p>
+                } @else {
+                  <table class="akd-table">
+                    <caption class="sr-only">
+                      Restore drills of this plan
+                    </caption>
+                    <thead>
+                      <tr>
+                        <th scope="col">Status</th>
+                        <th scope="col">Tables expected</th>
+                        <th scope="col">Tables restored</th>
+                        <th scope="col">Started</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (drill of drills(); track drill.uuid) {
+                        <tr>
+                          <td>
+                            <akd-status-badge domain="task" [state]="drill.status" />
+                            @if (drill.error_message) {
+                              <span class="akd-muted"> {{ drill.error_message }}</span>
+                            }
+                          </td>
+                          <td class="akd-muted">{{ drill.tables_expected ?? '—' }}</td>
+                          <td class="akd-muted">{{ drill.tables_restored ?? '—' }}</td>
+                          <td class="akd-muted akd-mono">{{ drill.started_at }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+              </akd-card>
+            }
+          }
+          @case ('terminal') {
+            <section class="akd-card section">
+              <akd-terminal
+                title="Database shell"
+                hint="Opens a shell in the database container — psql is available there. Commands you run touch live data."
+                [open]="openTerminal"
+              />
+            </section>
+          }
+          @case ('danger') {
+            <section class="akd-card section danger-zone">
+              <header class="akd-bar danger-zone__bar">
+                <h2>Delete this database</h2>
+              </header>
+              <label class="akd-check">
+                <input
+                  type="checkbox"
+                  name="deleteVolumes"
+                  [(ngModel)]="deleteVolumes"
+                  [disabled]="busy()"
+                />
+                Also delete its volumes — all stored data is destroyed with them
+              </label>
+              <div>
+                <button
+                  class="akd-btn akd-btn--danger"
+                  type="button"
+                  [disabled]="busy()"
+                  (click)="remove()"
+                >
+                  <akd-icon name="trash-2" [size]="15" />
+                  Delete database
                 </button>
               </div>
-            </form>
-          </akd-card>
-        </div>
-
-        <akd-card title="Backup plans" [padded]="false" class="section">
-          <span card-actions class="akd-badge akd-badge--mono">{{ plans().length }}</span>
-
-          <form class="row pad" (ngSubmit)="createPlan()">
-            <div class="akd-field grow-field">
-              <label class="akd-field__label" for="bp-frequency">
-                Frequency (cron or alias: daily, hourly…)
-              </label>
-              <input
-                id="bp-frequency"
-                name="frequency"
-                class="akd-input akd-input--mono"
-                placeholder="daily"
-                [(ngModel)]="planForm.frequency"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="akd-field grow-field">
-              <label class="akd-field__label" for="bp-timezone">Timezone</label>
-              <akd-timezone-select
-                inputId="bp-timezone"
-                [(value)]="planForm.timezone"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="bp-retention-count">
-                Keep at most (0 = unlimited)
-              </label>
-              <input
-                id="bp-retention-count"
-                name="retentionCount"
-                class="akd-input"
-                type="number"
-                min="0"
-                [(ngModel)]="planForm.retentionCount"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="bp-retention-days">
-                Max age, days (0 = unlimited)
-              </label>
-              <input
-                id="bp-retention-days"
-                name="retentionDays"
-                class="akd-input"
-                type="number"
-                min="0"
-                [(ngModel)]="planForm.retentionDays"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="akd-field grow-field">
-              <label class="akd-field__label" for="bp-s3">Upload to S3 (optional)</label>
-              <div class="akd-select">
-                <select
-                  id="bp-s3"
-                  name="s3"
-                  class="akd-input"
-                  [(ngModel)]="planForm.s3Uuid"
-                  [disabled]="busy()"
-                >
-                  <option value="">Local only</option>
-                  @for (s3 of s3Storages(); track s3.uuid) {
-                    <option [value]="s3.uuid">{{ s3.name }} ({{ s3.bucket }})</option>
-                  }
-                </select>
-              </div>
-            </div>
-            <button
-              class="akd-btn akd-btn--primary"
-              type="submit"
-              [disabled]="busy() || !planForm.frequency.trim()"
-            >
-              <akd-icon name="plus" [size]="15" />
-              Add plan
-            </button>
-          </form>
-
-          @if (plans().length === 0) {
-            <div class="pad">
-              <akd-empty-state
-                icon="archive"
-                title="No backup plan"
-                message="A database without a backup plan is one incident away from being a memory."
-              />
-            </div>
-          } @else {
-            <table class="akd-table">
-              <caption class="sr-only">
-                Backup plans of this database
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">Frequency</th>
-                  <th scope="col">Enabled</th>
-                  <th scope="col">Last run</th>
-                  <th scope="col">Next run</th>
-                  <th scope="col" class="right"><span class="sr-only">Actions</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (plan of plans(); track plan.uuid) {
-                  <tr>
-                    <td class="akd-mono">
-                      {{ plan.frequency }}
-                      <span class="zone">{{ plan.timezone || 'UTC' }}</span>
-                    </td>
-                    <td>
-                      @if (plan.enabled) {
-                        <span class="akd-badge akd-badge--ok">enabled</span>
-                      } @else {
-                        <span class="akd-badge">disabled</span>
-                      }
-                    </td>
-                    <td>
-                      @if (plan.last_execution_status; as status) {
-                        <akd-status-badge domain="task" [state]="status" />
-                      } @else {
-                        <span class="akd-muted">never</span>
-                      }
-                    </td>
-                    <td>
-                      @if (nextRun(plan); as when) {
-                        <span class="when">{{ when.primary }}</span>
-                        @if (when.secondary) {
-                          <span class="when__local">{{ when.secondary }}</span>
-                        }
-                      } @else {
-                        <span class="akd-muted">—</span>
-                      }
-                    </td>
-                    <td class="right">
-                      <button
-                        class="akd-btn akd-btn--ghost akd-btn--sm"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="backupNow(plan)"
-                      >
-                        <akd-icon name="archive" [size]="14" />
-                        Backup now
-                      </button>
-                      <button
-                        class="akd-btn akd-btn--ghost akd-btn--sm"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="drillNow(plan)"
-                      >
-                        Run drill
-                      </button>
-                      <button
-                        class="akd-btn akd-btn--ghost akd-btn--sm"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="startEditPlan(plan)"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        class="akd-btn akd-btn--ghost akd-btn--sm"
-                        type="button"
-                        [attr.aria-expanded]="expandedPlan() === plan.uuid"
-                        (click)="toggleHistory(plan)"
-                      >
-                        {{ expandedPlan() === plan.uuid ? 'Hide history' : 'History' }}
-                      </button>
-                      <button
-                        class="akd-iconbtn"
-                        type="button"
-                        [disabled]="busy()"
-                        (click)="removePlan(plan)"
-                        aria-label="Delete backup plan"
-                      >
-                        <akd-icon name="trash-2" [size]="15" />
-                      </button>
-                    </td>
-                  </tr>
-                  @if (editingPlan() === plan.uuid) {
-                    <tr>
-                      <td colspan="5">
-                        <form class="row edit-row" (ngSubmit)="saveEditPlan(plan)">
-                          <div class="akd-field grow-field">
-                            <label class="akd-field__label" [for]="'bpe-frequency-' + plan.uuid">
-                              Frequency
-                            </label>
-                            <input
-                              [id]="'bpe-frequency-' + plan.uuid"
-                              name="editFrequency"
-                              class="akd-input akd-input--mono"
-                              [(ngModel)]="editPlan.frequency"
-                              [disabled]="busy()"
-                            />
-                          </div>
-                          <div class="akd-field grow-field">
-                            <label class="akd-field__label" [for]="'bpe-tz-' + plan.uuid">
-                              Timezone
-                            </label>
-                            <akd-timezone-select
-                              [inputId]="'bpe-tz-' + plan.uuid"
-                              [(value)]="editPlan.timezone"
-                              [disabled]="busy()"
-                            />
-                          </div>
-                          <label class="akd-check">
-                            <input
-                              type="checkbox"
-                              name="editEnabled"
-                              [(ngModel)]="editPlan.enabled"
-                              [disabled]="busy()"
-                            />
-                            Enabled
-                          </label>
-                          <button
-                            class="akd-btn akd-btn--primary akd-btn--sm"
-                            type="submit"
-                            [disabled]="busy()"
-                          >
-                            Save
-                          </button>
-                          <button
-                            class="akd-btn akd-btn--ghost akd-btn--sm"
-                            type="button"
-                            (click)="editingPlan.set(null)"
-                          >
-                            Cancel
-                          </button>
-                        </form>
-                      </td>
-                    </tr>
-                  }
-                }
-              </tbody>
-            </table>
+            </section>
           }
-        </akd-card>
-
-        @if (expandedPlanObj(); as plan) {
-          <akd-card title="Backups" [padded]="false" class="section">
-            <span card-actions class="akd-badge akd-badge--mono">plan {{ plan.frequency }}</span>
-            @if (executions().length === 0) {
-              <p class="akd-muted pad">No execution yet.</p>
-            } @else {
-              <table class="akd-table">
-                <caption class="sr-only">
-                  Backup executions of this plan
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Taken</th>
-                    <th scope="col">Status</th>
-                    <th scope="col">File</th>
-                    <th scope="col">Size</th>
-                    <th scope="col">Destination</th>
-                    <th scope="col" class="right"><span class="sr-only">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (exec of executions(); track exec.uuid) {
-                    <tr>
-                      <td class="akd-mono akd-muted">{{ exec.created_at }}</td>
-                      <td>
-                        <akd-status-badge domain="task" [state]="exec.status" />
-                        @if (exec.message) {
-                          <span class="akd-muted"> {{ exec.message }}</span>
-                        }
-                      </td>
-                      <td class="akd-mono file" [title]="exec.checksum ?? ''">
-                        {{ exec.filename ?? '—' }}
-                      </td>
-                      <td class="akd-mono akd-muted">{{ size(exec.size_bytes) }}</td>
-                      <td>
-                        @if (destination(exec); as dest) {
-                          <span class="akd-badge akd-badge--mono">{{ dest }}</span>
-                        } @else {
-                          <span class="akd-muted">—</span>
-                        }
-                      </td>
-                      <td class="right">
-                        @if (exec.status === 'succeeded' || exec.status === 'partial') {
-                          <button
-                            class="akd-btn akd-btn--ghost akd-btn--sm"
-                            type="button"
-                            [disabled]="busy()"
-                            (click)="restore(plan, exec)"
-                          >
-                            <akd-icon name="archive-restore" [size]="14" />
-                            Restore
-                          </button>
-                        }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            }
-          </akd-card>
-
-          <akd-card title="Restore drills" [padded]="false" class="section">
-            @if (drills().length === 0) {
-              <p class="akd-muted pad">
-                No drill yet. A backup never restored is not a backup, it is a file.
-              </p>
-            } @else {
-              <table class="akd-table">
-                <caption class="sr-only">
-                  Restore drills of this plan
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">Status</th>
-                    <th scope="col">Tables expected</th>
-                    <th scope="col">Tables restored</th>
-                    <th scope="col">Started</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (drill of drills(); track drill.uuid) {
-                    <tr>
-                      <td>
-                        <akd-status-badge domain="task" [state]="drill.status" />
-                        @if (drill.error_message) {
-                          <span class="akd-muted"> {{ drill.error_message }}</span>
-                        }
-                      </td>
-                      <td class="akd-muted">{{ drill.tables_expected ?? '—' }}</td>
-                      <td class="akd-muted">{{ drill.tables_restored ?? '—' }}</td>
-                      <td class="akd-muted akd-mono">{{ drill.started_at }}</td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            }
-          </akd-card>
         }
-
-        <section class="akd-card section">
-          <akd-terminal
-            title="Database shell"
-            hint="Opens a shell in the database container — psql is available there. Commands you run touch live data."
-            [open]="openTerminal"
-          />
-        </section>
-
-        <section class="akd-card section danger-zone">
-          <header class="akd-bar danger-zone__bar">
-            <h2>Delete this database</h2>
-          </header>
-          <label class="akd-check">
-            <input
-              type="checkbox"
-              name="deleteVolumes"
-              [(ngModel)]="deleteVolumes"
-              [disabled]="busy()"
-            />
-            Also delete its volumes — all stored data is destroyed with them
-          </label>
-          <div>
-            <button
-              class="akd-btn akd-btn--danger"
-              type="button"
-              [disabled]="busy()"
-              (click)="remove()"
-            >
-              <akd-icon name="trash-2" [size]="15" />
-              Delete database
-            </button>
-          </div>
-        </section>
       }
     </div>
   `,
@@ -650,13 +684,6 @@ type S3Storage = components['schemas']['S3Storage'];
       }
       .grow {
         flex: 1;
-      }
-      .grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: var(--space-5);
-        align-items: start;
-        margin-bottom: var(--space-5);
       }
       .section {
         display: block;
@@ -744,6 +771,26 @@ export class DatabaseDetailComponent {
 
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+
+  /**
+   * Each tab names the permission it is useless without (the app pages'
+   * convention) — hiding what the server would refuse anyway.
+   */
+  private readonly allTabs: readonly { id: TabId; label: string; permission?: string }[] = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'settings', label: 'Settings', permission: 'databases:update' },
+    { id: 'backups', label: 'Backups', permission: 'backups:read' },
+    { id: 'terminal', label: 'Terminal', permission: 'terminal:open' },
+    { id: 'danger', label: 'Danger', permission: 'databases:delete' },
+  ];
+  protected readonly tabs = computed(() =>
+    this.allTabs.filter((t) => !t.permission || this.api.can(t.permission)),
+  );
+  protected readonly tab = signal<TabId>('overview');
+  /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
+   * back/forward walk the tabs. */
+  readonly tabParam = input<string | undefined>(undefined, { alias: 'tab' });
   private readonly confirm = inject(ConfirmService);
 
   /** Shell in the database container (§5.7) — psql lives there. */
@@ -789,6 +836,21 @@ export class DatabaseDetailComponent {
     effect(() => {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
+    });
+    // URL -> state: seeds the tab on load and follows back/forward.
+    effect(() => {
+      const wanted = this.tabParam();
+      const valid = this.tabs().find((t) => t.id === wanted)?.id;
+      this.tab.set(valid ?? 'overview');
+    });
+  }
+
+  protected selectTab(id: TabId): void {
+    if (this.tab() === id) return;
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: id === 'overview' ? null : id },
+      queryParamsHandling: 'merge',
     });
   }
 
