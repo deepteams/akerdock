@@ -25,7 +25,7 @@ type CreateModelRowParams struct {
 	Quantization       *string
 	MaxModelLen        *int32
 	TensorParallelSize int32
-	MemoryFraction     *float32
+	MemoryFraction     *float64
 	Image              *string
 	ImageTag           *string
 	EngineFlags        []byte
@@ -315,7 +315,7 @@ type ListRunningModelsOnServerParams struct {
 type ListRunningModelsOnServerRow struct {
 	Uuid           pgtype.UUID
 	Name           string
-	MemoryFraction *float32
+	MemoryFraction *float64
 }
 
 // The soft start-guard of ADR-080 §5: the models on this server, other than
@@ -370,7 +370,7 @@ type UpdateModelRowParams struct {
 	Quantization       *string
 	MaxModelLen        *int32
 	TensorParallelSize int32
-	MemoryFraction     *float32
+	MemoryFraction     *float64
 	Image              *string
 	ImageTag           *string
 	EngineFlags        []byte

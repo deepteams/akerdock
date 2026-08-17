@@ -126,6 +126,15 @@ export const routes: Routes = [
           import('./pages/database-detail.component').then((m) => m.DatabaseDetailComponent),
       },
       {
+        path: 'models',
+        loadComponent: () => import('./pages/models.component').then((m) => m.ModelsComponent),
+      },
+      {
+        path: 'models/:uuid',
+        loadComponent: () =>
+          import('./pages/model-detail.component').then((m) => m.ModelDetailComponent),
+      },
+      {
         path: 'servers',
         loadComponent: () => import('./pages/servers.component').then((m) => m.ServersComponent),
       },

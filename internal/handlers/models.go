@@ -140,7 +140,7 @@ func (a *API) modelToAPI(row modelRow) api.Model {
 		m.MaxModelLen = ptr(int(*row.Model.MaxModelLen))
 	}
 	if row.Model.MemoryFraction != nil {
-		m.MemoryFraction = ptr(float32(*row.Model.MemoryFraction))
+		m.MemoryFraction = row.Model.MemoryFraction
 	}
 	if row.Model.ShmSizeMb != nil {
 		m.ShmSizeMb = ptr(int(*row.Model.ShmSizeMb))
@@ -321,10 +321,7 @@ func (a *API) CreateModel(w http.ResponseWriter, r *http.Request, params api.Cre
 	if body.MaxModelLen != nil {
 		maxLen = ptr(int32(*body.MaxModelLen))
 	}
-	var memFrac *float32
-	if body.MemoryFraction != nil {
-		memFrac = body.MemoryFraction
-	}
+	memFrac := body.MemoryFraction
 	var shm *int32
 	if body.ShmSizeMb != nil {
 		shm = ptr(int32(*body.ShmSizeMb))
@@ -689,6 +686,57 @@ func (a *API) GetModelCredentials(w http.ResponseWriter, r *http.Request, modelU
 	})
 }
 
+// PreviewModelCommand implements POST /models/preview-command — the form's
+// live preview (ADR-080 §3bis): THE renderer on a configuration that does
+// not exist yet, never a UI approximation. Always masked (no model, no key).
+func (a *API) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
+	_, ok := a.require(w, r, auth.PermModelsRead)
+	if !ok {
+		return
+	}
+	var body api.ModelCommandPreviewRequest
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return
+	}
+	if strings.TrimSpace(body.ModelId) == "" ||
+		(body.Engine != api.ModelCommandPreviewRequestEngineVllm && body.Engine != api.ModelCommandPreviewRequestEngineSglang) {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr("engine"), Code: ptr("required"),
+			Message: "engine (vllm|sglang) and model_id are required",
+		}})
+		return
+	}
+	flags := engineFlagsFromAPI(body.EngineFlags)
+	if err := inference.ValidateFlags(flags); err != nil {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{Field: ptr("engine_flags"), Code: ptr("invalid"), Message: err.Error()}})
+		return
+	}
+	cfg := inference.Config{
+		Engine:  inference.Engine(body.Engine),
+		ModelID: strings.TrimSpace(body.ModelId),
+		Flags:   flags,
+	}
+	if body.ServedModelName != nil {
+		cfg.ServedModelName = *body.ServedModelName
+	}
+	if body.Quantization != nil {
+		cfg.Quantization = *body.Quantization
+	}
+	if body.MaxModelLen != nil {
+		cfg.MaxModelLen = *body.MaxModelLen
+	}
+	if body.TensorParallelSize != nil {
+		cfg.TensorParallel = *body.TensorParallelSize
+	}
+	if body.MemoryFraction != nil {
+		cfg.MemoryFraction = float64(*body.MemoryFraction)
+	}
+	httpapi.WriteJSON(w, http.StatusOK, api.ModelCommand{
+		Command: inference.HumanCommand(cfg, inference.MaskedKey), Masked: true,
+	})
+}
+
 // ParseModelCommand implements POST /models/parse-command — the import half
 // of ADR-080 §3bis. Pure: nothing is persisted.
 func (a *API) ParseModelCommand(w http.ResponseWriter, r *http.Request) {
@@ -729,7 +777,7 @@ func (a *API) ParseModelCommand(w http.ResponseWriter, r *http.Request) {
 		out.TensorParallelSize = ptr(res.Config.TensorParallel)
 	}
 	if res.Config.MemoryFraction > 0 {
-		out.MemoryFraction = ptr(float32(res.Config.MemoryFraction))
+		out.MemoryFraction = ptr(res.Config.MemoryFraction)
 	}
 	flags := make([]api.EngineFlag, 0, len(res.Config.Flags))
 	for _, f := range res.Config.Flags {

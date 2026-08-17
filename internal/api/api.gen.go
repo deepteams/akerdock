@@ -1204,6 +1204,24 @@ func (e ModelEngine) Valid() bool {
 	}
 }
 
+// Defines values for ModelCommandPreviewRequestEngine.
+const (
+	ModelCommandPreviewRequestEngineSglang ModelCommandPreviewRequestEngine = "sglang"
+	ModelCommandPreviewRequestEngineVllm   ModelCommandPreviewRequestEngine = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the ModelCommandPreviewRequestEngine enum.
+func (e ModelCommandPreviewRequestEngine) Valid() bool {
+	switch e {
+	case ModelCommandPreviewRequestEngineSglang:
+		return true
+	case ModelCommandPreviewRequestEngineVllm:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ModelCreateEngine.
 const (
 	ModelCreateEngineSglang ModelCreateEngine = "sglang"
@@ -1224,16 +1242,16 @@ func (e ModelCreateEngine) Valid() bool {
 
 // Defines values for ModelParseResultEngine.
 const (
-	Sglang ModelParseResultEngine = "sglang"
-	Vllm   ModelParseResultEngine = "vllm"
+	ModelParseResultEngineSglang ModelParseResultEngine = "sglang"
+	ModelParseResultEngineVllm   ModelParseResultEngine = "vllm"
 )
 
 // Valid indicates whether the value is a known member of the ModelParseResultEngine enum.
 func (e ModelParseResultEngine) Valid() bool {
 	switch e {
-	case Sglang:
+	case ModelParseResultEngineSglang:
 		return true
-	case Vllm:
+	case ModelParseResultEngineVllm:
 		return true
 	default:
 		return false
@@ -4491,7 +4509,7 @@ type Model struct {
 	Image           *string       `json:"image,omitempty"`
 	ImageTag        *string       `json:"image_tag,omitempty"`
 	MaxModelLen     *int          `json:"max_model_len,omitempty"`
-	MemoryFraction  *float32      `json:"memory_fraction,omitempty"`
+	MemoryFraction  *float64      `json:"memory_fraction,omitempty"`
 	ModelId         string        `json:"model_id"`
 	Name            string        `json:"name"`
 	ObservedAt      *time.Time    `json:"observed_at,omitempty"`
@@ -4527,6 +4545,21 @@ type ModelCommand struct {
 	Masked bool `json:"masked"`
 }
 
+// ModelCommandPreviewRequest defines model for ModelCommandPreviewRequest.
+type ModelCommandPreviewRequest struct {
+	Engine             ModelCommandPreviewRequestEngine `json:"engine"`
+	EngineFlags        *[]EngineFlag                    `json:"engine_flags,omitempty"`
+	MaxModelLen        *int                             `json:"max_model_len,omitempty"`
+	MemoryFraction     *float64                         `json:"memory_fraction,omitempty"`
+	ModelId            string                           `json:"model_id"`
+	Quantization       *string                          `json:"quantization,omitempty"`
+	ServedModelName    *string                          `json:"served_model_name,omitempty"`
+	TensorParallelSize *int                             `json:"tensor_parallel_size,omitempty"`
+}
+
+// ModelCommandPreviewRequestEngine defines model for ModelCommandPreviewRequest.Engine.
+type ModelCommandPreviewRequestEngine string
+
 // ModelCreate defines model for ModelCreate.
 type ModelCreate struct {
 	Description     *string           `json:"description,omitempty"`
@@ -4541,7 +4574,7 @@ type ModelCreate struct {
 	MaxModelLen  *int    `json:"max_model_len,omitempty"`
 
 	// MemoryFraction The one memory knob (ADR-080 §1), rendered as the engine's own flag — --gpu-memory-utilization on vLLM, --mem-fraction-static on SGLang. Null uses the engine default.
-	MemoryFraction *float32 `json:"memory_fraction,omitempty"`
+	MemoryFraction *float64 `json:"memory_fraction,omitempty"`
 
 	// ModelId Hugging Face model reference.
 	ModelId     string `json:"model_id"`
@@ -4573,7 +4606,7 @@ type ModelParseResult struct {
 	Engine         ModelParseResultEngine `json:"engine"`
 	EngineFlags    []EngineFlag           `json:"engine_flags"`
 	MaxModelLen    *int                   `json:"max_model_len,omitempty"`
-	MemoryFraction *float32               `json:"memory_fraction,omitempty"`
+	MemoryFraction *float64               `json:"memory_fraction,omitempty"`
 	ModelId        string                 `json:"model_id"`
 
 	// Notices What the import dropped, and why — never silent.
@@ -4593,7 +4626,7 @@ type ModelUpdate struct {
 	Image              *string       `json:"image,omitempty"`
 	ImageTag           *string       `json:"image_tag,omitempty"`
 	MaxModelLen        *int          `json:"max_model_len,omitempty"`
-	MemoryFraction     *float32      `json:"memory_fraction,omitempty"`
+	MemoryFraction     *float64      `json:"memory_fraction,omitempty"`
 	ModelId            *string       `json:"model_id,omitempty"`
 	Name               *string       `json:"name,omitempty"`
 	Quantization       *string       `json:"quantization,omitempty"`
@@ -7189,6 +7222,9 @@ type CreateModelJSONRequestBody = ModelCreate
 // ParseModelCommandJSONRequestBody defines body for ParseModelCommand for application/json ContentType.
 type ParseModelCommandJSONRequestBody ParseModelCommandJSONBody
 
+// PreviewModelCommandJSONRequestBody defines body for PreviewModelCommand for application/json ContentType.
+type PreviewModelCommandJSONRequestBody = ModelCommandPreviewRequest
+
 // UpdateModelJSONRequestBody defines body for UpdateModel for application/json ContentType.
 type UpdateModelJSONRequestBody = ModelUpdate
 
@@ -7763,6 +7799,9 @@ type ServerInterface interface {
 	// Parse a serve command into a configuration
 	// (POST /models/parse-command)
 	ParseModelCommand(w http.ResponseWriter, r *http.Request)
+	// Render a configuration into its serve command
+	// (POST /models/preview-command)
+	PreviewModelCommand(w http.ResponseWriter, r *http.Request)
 	// Search the Hugging Face Hub
 	// (GET /models/search)
 	SearchModelHub(w http.ResponseWriter, r *http.Request, params SearchModelHubParams)
@@ -8840,6 +8879,12 @@ func (_ Unimplemented) CreateModel(w http.ResponseWriter, r *http.Request, param
 // Parse a serve command into a configuration
 // (POST /models/parse-command)
 func (_ Unimplemented) ParseModelCommand(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Render a configuration into its serve command
+// (POST /models/preview-command)
+func (_ Unimplemented) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14665,6 +14710,26 @@ func (siw *ServerInterfaceWrapper) ParseModelCommand(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ParseModelCommand(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewModelCommand operation middleware
+func (siw *ServerInterfaceWrapper) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewModelCommand(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -21464,6 +21529,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/models/parse-command", wrapper.ParseModelCommand)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/preview-command", wrapper.PreviewModelCommand)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/models/search", wrapper.SearchModelHub)
@@ -32017,6 +32085,89 @@ func (response ParseModelCommand422JSONResponse) VisitParseModelCommandResponse(
 type ParseModelCommand429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response ParseModelCommand429JSONResponse) VisitParseModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommandRequestObject struct {
+	Body *PreviewModelCommandJSONRequestBody
+}
+
+type PreviewModelCommandResponseObject interface {
+	VisitPreviewModelCommandResponse(w http.ResponseWriter) error
+}
+
+type PreviewModelCommand200JSONResponse ModelCommand
+
+func (response PreviewModelCommand200JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PreviewModelCommand400JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response PreviewModelCommand401JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response PreviewModelCommand422JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response PreviewModelCommand429JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -45629,6 +45780,9 @@ type StrictServerInterface interface {
 	// Parse a serve command into a configuration
 	// (POST /models/parse-command)
 	ParseModelCommand(ctx context.Context, request ParseModelCommandRequestObject) (ParseModelCommandResponseObject, error)
+	// Render a configuration into its serve command
+	// (POST /models/preview-command)
+	PreviewModelCommand(ctx context.Context, request PreviewModelCommandRequestObject) (PreviewModelCommandResponseObject, error)
 	// Search the Hugging Face Hub
 	// (GET /models/search)
 	SearchModelHub(ctx context.Context, request SearchModelHubRequestObject) (SearchModelHubResponseObject, error)
@@ -49169,6 +49323,37 @@ func (sh *strictHandler) ParseModelCommand(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ParseModelCommandResponseObject); ok {
 		if err := validResponse.VisitParseModelCommandResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PreviewModelCommand operation middleware
+func (sh *strictHandler) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
+	var request PreviewModelCommandRequestObject
+
+	var body PreviewModelCommandJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewModelCommand(ctx, request.(PreviewModelCommandRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewModelCommand")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PreviewModelCommandResponseObject); ok {
+		if err := validResponse.VisitPreviewModelCommandResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

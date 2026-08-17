@@ -189,6 +189,21 @@ func TestModelscovParseAndSearch(t *testing.T) {
 			t.Fatalf("parse = %+v", out)
 		}
 	})
+	t.Run("the form preview is the renderer's, always masked", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.PreviewModelCommand(rec, rescovReq(http.MethodPost, "/models/preview-command",
+			`{"engine":"sglang","model_id":"org/m","memory_fraction":0.7,"engine_flags":[{"flag":"--enable-torch-compile"}]}`))
+		rescovWant(t, rec, http.StatusOK)
+		body := rec.Body.String()
+		if !strings.Contains(body, "sglang.launch_server") || !strings.Contains(body, "--mem-fraction-static 0.7") {
+			t.Fatalf("preview = %s", body)
+		}
+		rec = httptest.NewRecorder()
+		a.PreviewModelCommand(rec, rescovReq(http.MethodPost, "/models/preview-command",
+			`{"engine":"vllm","model_id":"x","engine_flags":[{"flag":"--port","value":"1"}]}`))
+		rescovWant(t, rec, http.StatusUnprocessableEntity)
+	})
 	t.Run("an unparseable command is a 422 naming the cause", func(t *testing.T) {
 		a, _ := rescovAPI(t)
 		rec := httptest.NewRecorder()

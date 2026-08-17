@@ -1396,6 +1396,84 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/scheduled-tasks/${uuid}`);
   }
 
+  // --- models (inference — ADR-080) ------------------------------------------------------------
+
+  listModels(query?: { cursor?: string; limit?: number }) {
+    type Response = paths['/models']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/models', { query });
+  }
+
+  createModel(body: components['schemas']['ModelCreate']) {
+    type Response = paths['/models']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', '/models', { body });
+  }
+
+  getModel(uuid: string) {
+    type Response =
+      paths['/models/{model_uuid}']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/models/${uuid}`);
+  }
+
+  updateModel(uuid: string, version: number, body: components['schemas']['ModelUpdate']) {
+    type Response =
+      paths['/models/{model_uuid}']['patch']['responses']['200']['content']['application/json'];
+    return this.request<Response>('PATCH', `/models/${uuid}`, { ifMatch: version, body });
+  }
+
+  deleteModel(uuid: string) {
+    type Response =
+      paths['/models/{model_uuid}']['delete']['responses']['202']['content']['application/json'];
+    return this.request<Response>('DELETE', `/models/${uuid}`);
+  }
+
+  startModel(uuid: string, body?: { swap?: boolean }) {
+    type Response =
+      paths['/models/{model_uuid}/start']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/models/${uuid}/start`, { body });
+  }
+
+  stopModel(uuid: string) {
+    type Response =
+      paths['/models/{model_uuid}/stop']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/models/${uuid}/stop`);
+  }
+
+  restartModel(uuid: string) {
+    type Response =
+      paths['/models/{model_uuid}/restart']['post']['responses']['202']['content']['application/json'];
+    return this.request<Response>('POST', `/models/${uuid}/restart`);
+  }
+
+  getModelCommand(uuid: string, query?: { reveal?: boolean }) {
+    type Response =
+      paths['/models/{model_uuid}/command']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/models/${uuid}/command`, { query });
+  }
+
+  getModelCredentials(uuid: string) {
+    type Response =
+      paths['/models/{model_uuid}/credentials']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/models/${uuid}/credentials`);
+  }
+
+  parseModelCommand(body: { command: string }) {
+    type Response =
+      paths['/models/parse-command']['post']['responses']['200']['content']['application/json'];
+    return this.request<Response>('POST', '/models/parse-command', { body });
+  }
+
+  previewModelCommand(body: components['schemas']['ModelCommandPreviewRequest']) {
+    type Response =
+      paths['/models/preview-command']['post']['responses']['200']['content']['application/json'];
+    return this.request<Response>('POST', '/models/preview-command', { body });
+  }
+
+  searchModelHub(query: { q: string }) {
+    type Response =
+      paths['/models/search']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', '/models/search', { query });
+  }
+
   // --- databases (lifecycle, backups, executions, restore, drills) -----------------------------
 
   listDatabases(query?: {

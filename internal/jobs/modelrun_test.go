@@ -46,7 +46,7 @@ func TestModelImage(t *testing.T) {
 
 func TestModelInferenceConfig(t *testing.T) {
 	served, quant := "llama", "awq"
-	maxLen, frac := int32(8192), float32(0.85)
+	maxLen, frac := int32(8192), 0.85
 	m := store.Model{
 		Engine: store.InferenceEngineSglang, ModelID: "org/m", TensorParallelSize: 2,
 		ServedModelName: &served, Quantization: &quant, MaxModelLen: &maxLen, MemoryFraction: &frac,

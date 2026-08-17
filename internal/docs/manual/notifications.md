@@ -4,7 +4,7 @@ title: Notifications
 icon: bell
 group: Run and debug
 summary: Channels, routing rules, and the events you can subscribe to.
-order: 5
+order: 6
 permission: notifications:read
 gates:
   channels: notifications:manage

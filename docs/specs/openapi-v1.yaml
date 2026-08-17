@@ -7148,6 +7148,38 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /models/preview-command:
+    post:
+      tags: [Models]
+      operationId: previewModelCommand
+      summary: Render a configuration into its serve command
+      description: >-
+        The form's live preview (ADR-080 §3bis): THE renderer, on a
+        configuration that does not exist yet — never a UI approximation.
+        The key is always masked here (no model, no key). Pure function.
+      x-required-permission: models:read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelCommandPreviewRequest"
+      responses:
+        "200":
+          description: The rendered command, masked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelCommand"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /models/parse-command:
     post:
       tags: [Models]
@@ -12015,6 +12047,7 @@ components:
           default: 1
         memory_fraction:
           type: number
+          format: double
           nullable: true
           description: >-
             The one memory knob (ADR-080 §1), rendered as the engine's own
@@ -12081,6 +12114,7 @@ components:
           minimum: 1
         memory_fraction:
           type: number
+          format: double
           nullable: true
         image:
           type: string
@@ -12127,6 +12161,7 @@ components:
           type: integer
         memory_fraction:
           type: number
+          format: double
           nullable: true
         image:
           type: string
@@ -12194,6 +12229,35 @@ components:
           type: string
         endpoint:
           type: string
+    ModelCommandPreviewRequest:
+      type: object
+      required: [engine, model_id]
+      properties:
+        engine:
+          type: string
+          enum: [vllm, sglang]
+        model_id:
+          type: string
+        served_model_name:
+          type: string
+          nullable: true
+        quantization:
+          type: string
+          nullable: true
+        max_model_len:
+          type: integer
+          nullable: true
+        tensor_parallel_size:
+          type: integer
+          nullable: true
+        memory_fraction:
+          type: number
+          format: double
+          nullable: true
+        engine_flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngineFlag"
     ModelParseResult:
       type: object
       required: [engine, model_id, engine_flags, notices]
@@ -12217,6 +12281,7 @@ components:
           nullable: true
         memory_fraction:
           type: number
+          format: double
           nullable: true
         engine_flags:
           type: array

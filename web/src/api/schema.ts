@@ -3175,6 +3175,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/models/preview-command": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Render a configuration into its serve command
+         * @description The form's live preview (ADR-080 §3bis): THE renderer, on a configuration that does not exist yet — never a UI approximation. The key is always masked here (no model, no key). Pure function.
+         */
+        post: operations["previewModelCommand"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/models/parse-command": {
         parameters: {
             query?: never;
@@ -5262,7 +5282,10 @@ export interface components {
             max_model_len?: number | null;
             /** @default 1 */
             tensor_parallel_size: number;
-            /** @description The one memory knob (ADR-080 §1), rendered as the engine's own flag — --gpu-memory-utilization on vLLM, --mem-fraction-static on SGLang. Null uses the engine default. */
+            /**
+             * Format: double
+             * @description The one memory knob (ADR-080 §1), rendered as the engine's own flag — --gpu-memory-utilization on vLLM, --mem-fraction-static on SGLang. Null uses the engine default.
+             */
             memory_fraction?: number | null;
             /** @description Image override. Null uses the per-engine, per-architecture default (a GB10 server needs sm_121a builds). */
             image?: string | null;
@@ -5286,6 +5309,7 @@ export interface components {
             quantization?: string | null;
             max_model_len?: number | null;
             tensor_parallel_size?: number;
+            /** Format: double */
             memory_fraction?: number | null;
             image?: string | null;
             image_tag?: string | null;
@@ -5304,6 +5328,7 @@ export interface components {
             quantization?: string | null;
             max_model_len?: number | null;
             tensor_parallel_size?: number;
+            /** Format: double */
             memory_fraction?: number | null;
             image?: string | null;
             image_tag?: string | null;
@@ -5338,6 +5363,18 @@ export interface components {
             api_key: string;
             endpoint: string;
         };
+        ModelCommandPreviewRequest: {
+            /** @enum {string} */
+            engine: "vllm" | "sglang";
+            model_id: string;
+            served_model_name?: string | null;
+            quantization?: string | null;
+            max_model_len?: number | null;
+            tensor_parallel_size?: number | null;
+            /** Format: double */
+            memory_fraction?: number | null;
+            engine_flags?: components["schemas"]["EngineFlag"][];
+        };
         ModelParseResult: {
             /** @enum {string} */
             engine: "vllm" | "sglang";
@@ -5346,6 +5383,7 @@ export interface components {
             quantization?: string | null;
             max_model_len?: number | null;
             tensor_parallel_size?: number | null;
+            /** Format: double */
             memory_fraction?: number | null;
             engine_flags: components["schemas"]["EngineFlag"][];
             /** @description What the import dropped, and why — never silent. */
@@ -13382,6 +13420,34 @@ export interface operations {
             };
             400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    previewModelCommand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelCommandPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The rendered command, masked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModelCommand"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["UnprocessableEntity"];
             429: components["responses"]["TooManyRequests"];
         };
     };

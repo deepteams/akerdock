@@ -4,7 +4,7 @@ title: Backups and restore
 icon: archive
 group: Run and debug
 summary: Backup plans, retention, restoring, and the drill that proves it works.
-order: 4
+order: 5
 permission: backups:read
 gates:
   backup-plans: backups:manage

@@ -4,7 +4,7 @@ title: Jobs
 icon: list-checks
 group: Run and debug
 summary: Where an asynchronous operation went, and why it stopped.
-order: 6
+order: 7
 permission: deployments:read
 links:
   - label: Jobs

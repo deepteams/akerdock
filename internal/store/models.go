@@ -2874,7 +2874,7 @@ type Model struct {
 	Quantization       *string
 	MaxModelLen        *int32
 	TensorParallelSize int32
-	MemoryFraction     *float32
+	MemoryFraction     *float64
 	Image              *string
 	ImageTag           *string
 	EngineFlags        []byte
