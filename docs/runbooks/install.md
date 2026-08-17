@@ -129,6 +129,18 @@ As soon as the first team exists, the bootstrap also pre-registers the **`localh
    ```
    Then **delete the temporary files** (`shred -u /tmp/akerdock-server-01*`): the key encrypted in the database (`private_keys.private_key_enc`) becomes the only copy.
 3. Deposit the public key on the target server (the SSH user's `~/.ssh/authorized_keys`), then add and validate the server (UI or `POST /servers` + `POST /servers/{uuid}/validate`).
+   **Source-only installs** (`install.sh`, ADR-078): there is no registry, so each managed
+   server rebuilds the instance's exact commit **from the public repository**, natively for
+   its own CPU, whenever its daemon lacks the image — validation and the agent
+   reconciliation trigger it, and `./install.sh` updates propagate with no per-server step.
+   Two requirements: the commit must be **pushed**, and the working tree clean at install
+   time (a dirty build carries no commit and refuses to guess — `install.sh` warns). For
+   uncommitted or unpushed work, ship the working tree by hand instead:
+   ```sh
+   ./install.sh seed user@server-01
+   ```
+   Installs running the published `ghcr.io` image are untouched by all of this: the registry
+   serves every architecture.
 4. Configure without delay: the **instance FQDN** and transactional email (§14.2), and the **instance database backup plan** with an S3 destination (`database_backup_plans.is_instance_backup = true`, §7.5) — see [postgres-failure.md](postgres-failure.md).
 
 ## Post-install verification

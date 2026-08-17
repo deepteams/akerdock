@@ -19,6 +19,7 @@ import (
 
 	dockerfake "github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
+	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/sshkey"
@@ -466,6 +467,44 @@ func TestServalcovProvisionAgent(t *testing.T) {
 		})
 		_, _, err := h.provisionAgent(ctx, client, server)
 		if err == nil || !strings.Contains(err.Error(), "destination network") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("an unpullable image names the seed remediation", func(t *testing.T) {
+		// The source-only install case (ADR-078): the tag lives only in the
+		// instance host's daemon, the server's docker run tries a registry
+		// pull that can only fail — the error must say what to run, where.
+		h, _ := enrolled(t)
+		client := servalcovDial(t, func(command string) (string, uint32) {
+			if strings.Contains(command, "docker run -d --name "+proxy.AgentContainerName) {
+				return "docker: Error response from daemon: pull access denied for akerdock", 125
+			}
+			return servalcovOK(command)
+		})
+		_, _, err := h.provisionAgent(ctx, client, server)
+		if err == nil || !strings.Contains(err.Error(), "install.sh seed") || !strings.Contains(err.Error(), "akerdock:unit") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("an unpullable image with a known commit asks whether it is pushed", func(t *testing.T) {
+		// The nominal ADR-078 lane: the server builds the image from the
+		// public repository at the instance's commit; the one way that fails
+		// on a healthy server is a commit the repository does not hold yet.
+		restoreRepo, restoreCommit := agentSource.Repo, agentSource.Commit
+		t.Cleanup(func() { SetAgentSource(restoreRepo, restoreCommit) })
+		SetAgentSource("https://github.com/deepteams/akerdock.git", "0123abc")
+		h, _ := enrolled(t)
+		client := servalcovDial(t, func(command string) (string, uint32) {
+			if strings.Contains(command, "docker build") {
+				return "fatal: could not find remote ref 0123abc", 128
+			}
+			return servalcovOK(command)
+		})
+		_, _, err := h.provisionAgent(ctx, client, server)
+		if err == nil || !strings.Contains(err.Error(), "is that commit pushed") ||
+			!strings.Contains(err.Error(), "0123abc") {
 			t.Fatalf("err = %v", err)
 		}
 	})

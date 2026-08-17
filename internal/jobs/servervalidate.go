@@ -259,7 +259,33 @@ func (h *ServerValidate) provisionAgent(ctx context.Context, client *sshexec.Cli
 		return nil, nil, err
 	}
 	if res.ExitCode != 0 {
-		return nil, nil, fmt.Errorf("agent deploy failed (exit %d): %s", res.ExitCode, stderrOf(res))
+		// The known failure mode of a source-only install (ADR-078): the
+		// image exists in no registry, so obtaining it either built from the
+		// public repository at this instance's commit (the prelude) or failed
+		// a hopeless pull. Name the remediation for the exact situation —
+		// the operator is looking at precisely this message.
+		hint := ""
+		combined := res.Stdout + "\n" + res.Stderr
+		for _, marker := range []string{
+			"pull access denied", "repository does not exist", "manifest unknown", "Unable to find image",
+			"could not find remote ref", "repository not found", "failed to fetch",
+		} {
+			if !strings.Contains(combined, marker) {
+				continue
+			}
+			if agentSource.Commit != "" {
+				hint = fmt.Sprintf(" — the server builds %q from %s#%s (ADR-078): is that commit pushed? "+
+					"push it and re-validate, or ship unpushed work with ./install.sh seed <user>@%s",
+					h.AgentImage, agentSource.Repo, agentSource.Commit, server.Host)
+			} else {
+				hint = fmt.Sprintf(" — the image %q is not pullable from this server, and this instance carries "+
+					"no source commit to rebuild it from (a dirty tree at install time, ADR-078): commit, push and "+
+					"re-run ./install.sh, or ship the working tree with ./install.sh seed <user>@%s",
+					h.AgentImage, server.Host)
+			}
+			break
+		}
+		return nil, nil, fmt.Errorf("agent deploy failed (exit %d): %s%s", res.ExitCode, stderrOf(res), hint)
 	}
 	// The agent dials OUTBOUND: wait for its channel, not for the container.
 	deadline := time.Now().Add(agentReadyTimeout)

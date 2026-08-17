@@ -125,6 +125,11 @@ type Config struct {
 	// -ldflags. Empty everywhere disables waker provisioning — scale-to-zero then
 	// stays inert with a clear error, never a guessed registry.
 	Image string
+	// SourceRepo overrides the public repository managed servers rebuild the
+	// agent image from on a source-only install (AKERDOCK_SOURCE_REPO,
+	// ADR-078). Empty uses the canonical repository baked into the binary —
+	// a fork sets this one variable instead of patching.
+	SourceRepo string
 	// InstanceURL is the base URL agents are enrolled to dial back
 	// (AKERDOCK_INSTANCE_URL). Empty — the default — derives it: the Docker
 	// host gateway for a localhost server, the instance FQDN otherwise. Set
@@ -188,6 +193,7 @@ var envKeys = []string{
 	"AKERDOCK_TERMINAL_IDLE_TIMEOUT",
 	"AKERDOCK_TERMINAL_MAX_DURATION",
 	"AKERDOCK_IMAGE",
+	"AKERDOCK_SOURCE_REPO",
 	"AKERDOCK_CONFIG_FILE",
 }
 
@@ -358,6 +364,7 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 	}
 
 	cfg.Image = get("AKERDOCK_IMAGE")
+	cfg.SourceRepo = get("AKERDOCK_SOURCE_REPO")
 
 	cfg.WorkerConcurrency = DefaultWorkerConcurrency
 	if v := get("AKERDOCK_WORKER_CONCURRENCY"); v != "" {

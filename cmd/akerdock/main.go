@@ -65,6 +65,17 @@ var version = "dev"
 // builds, which is why scale-to-zero then requires AKERDOCK_IMAGE explicitly.
 var image string
 
+// commit is the exact git commit of this build (-ldflags "-X main.commit=…",
+// ADR-078). On a source-only install it lets every managed server rebuild
+// this very image from the public repository, natively for its own CPU;
+// empty — a dirty tree, a tarball — disables that propagation, never guesses.
+var commit string
+
+// defaultSourceRepo is the public repository the agents build from when the
+// instance was itself built from source (ADR-078). AKERDOCK_SOURCE_REPO
+// overrides it — a fork stays a one-variable change, not a patch.
+const defaultSourceRepo = "https://github.com/deepteams/akerdock.git"
+
 // serverModes are the run modes accepted both by `serve <mode>` and, for one
 // release, as a bare legacy argument (`akerdock all-in-one`).
 var serverModes = map[string]bool{
@@ -228,6 +239,16 @@ func serveRun(mode string) int {
 	if cfg.Image == "" {
 		cfg.Image = image
 	}
+	// The instance's own source coordinates (ADR-078): with them, a managed
+	// server whose daemon lacks the agent image rebuilds it from the public
+	// repository at this very commit — natively, for its own architecture —
+	// instead of attempting a registry pull that a source-only install can
+	// only fail. Set once; every AgentEnsureCommand rendering reads it.
+	sourceRepo := cfg.SourceRepo
+	if sourceRepo == "" {
+		sourceRepo = defaultSourceRepo
+	}
+	jobs.SetAgentSource(sourceRepo, commit)
 
 	baseHandler := loggerHandler(cfg)
 	logger := slog.New(logredact.Wrap(baseHandler))

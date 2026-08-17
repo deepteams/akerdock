@@ -49,10 +49,16 @@ ARG VERSION=dev
 # configuration. install.sh passes akerdock:${AKERDOCK_TAG}; empty falls back to
 # AKERDOCK_IMAGE at runtime.
 ARG IMAGE=
+# COMMIT is the exact git commit this build was made from (ADR-078): a
+# source-only install bakes it so every managed server can rebuild the SAME
+# image from the public repository, natively for its own CPU. Deliberately
+# empty on a dirty working tree — a build that matches no commit must not
+# claim one.
+ARG COMMIT=
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build \
         -trimpath \
-        -ldflags "-s -w -X main.version=${VERSION} -X main.image=${IMAGE}" \
+        -ldflags "-s -w -X main.version=${VERSION} -X main.image=${IMAGE} -X main.commit=${COMMIT}" \
         -o /akerdock ./cmd/akerdock
 
 FROM gcr.io/distroless/static-debian12:nonroot
