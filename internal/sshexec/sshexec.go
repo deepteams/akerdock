@@ -23,6 +23,56 @@ type Client struct {
 	// HostKeyFingerprint is the SHA256 fingerprint of the key the server
 	// actually presented — pinned on later connections (§20.1).
 	HostKeyFingerprint string
+	sudo               bool
+}
+
+// EnableSudo makes every later Run/RunInput/RunStream escalate through
+// `sudo -n` (the §3.1 non-root contract): the command is wrapped in
+// `sudo -n -- sh -c '…'` so a && chain escalates as a whole, and -n
+// guarantees sudo never prompts — the connection is authenticated with an
+// SSH key, there is no password to type, so a prompt could only hang the
+// session until its timeout. Interactive PTYs (StartPTY) and TCP channels
+// (DialTCP) are deliberately not escalated: the terminal is the operator's
+// own session, and a tunnel carries no command at all.
+func (c *Client) EnableSudo() { c.sudo = true }
+
+// ErrSudoPassword is returned when `sudo -n` refuses because it would have
+// to prompt. Its own error because the remediation is on the server, not in
+// AkerDock, and because letting the raw exit code flow to callers reads as
+// "the command failed" when the command never ran.
+var ErrSudoPassword = errors.New("sshexec: sudo requires a password")
+
+// ErrSudoMissing is returned when the sudo binary does not exist on the
+// server a sudo-enabled client talks to.
+var ErrSudoMissing = errors.New("sshexec: sudo not found on the server")
+
+// sudoWrap escalates one shell snippet. LC_ALL=C pins sudo's own
+// diagnostics to English so they stay classifiable — the failure this
+// exists for was first reported as a locale-dependent French mkdir error.
+func sudoWrap(command string) string {
+	return "LC_ALL=C sudo -n -- sh -c '" + strings.ReplaceAll(command, "'", `'\''`) + "'"
+}
+
+// classifySudo turns sudo's own refusals into typed errors carrying their
+// remediation. Only consulted on sudo-enabled clients: the substrings are
+// sudo's (pinned to C locale by sudoWrap), and exit 127 is the outer shell
+// failing to find sudo itself — an inner command's 127 never names sudo.
+func (c *Client) classifySudo(res *Result) error {
+	user := c.conn.User()
+	switch {
+	case res.ExitCode == 1 &&
+		(strings.Contains(res.Stderr, "a password is required") ||
+			strings.Contains(res.Stderr, "is not in the sudoers file") ||
+			strings.Contains(res.Stderr, "is not allowed to execute")):
+		return fmt.Errorf("%w for %q: AkerDock authenticates with an SSH key and has no password to type, "+
+			"so sudo must be passwordless — on the server, run: "+
+			"echo '%s ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/90-akerdock && "+
+			"sudo chmod 0440 /etc/sudoers.d/90-akerdock — then re-validate",
+			ErrSudoPassword, user, user)
+	case res.ExitCode == 127 && strings.Contains(res.Stderr, "sudo") && strings.Contains(res.Stderr, "not found"):
+		return fmt.Errorf("%w: install sudo, or onboard the server as root with use_sudo off", ErrSudoMissing)
+	}
+	return nil
 }
 
 // ErrHostKeyChanged is returned when a server presents a different host key
@@ -131,6 +181,9 @@ func (w *callbackWriter) Write(p []byte) (int, error) {
 }
 
 func (c *Client) run(ctx context.Context, command string, stdin io.Reader, onOutput func(string)) (*Result, error) {
+	if c.sudo {
+		command = sudoWrap(command)
+	}
 	session, err := c.conn.NewSession()
 	if err != nil {
 		return nil, fmt.Errorf("sshexec: session: %w", err)
@@ -158,6 +211,11 @@ func (c *Client) run(ctx context.Context, command string, stdin io.Reader, onOut
 		var exitErr *ssh.ExitError
 		if errors.As(err, &exitErr) {
 			res.ExitCode = exitErr.ExitStatus()
+			if c.sudo {
+				if sudoErr := c.classifySudo(res); sudoErr != nil {
+					return nil, sudoErr
+				}
+			}
 			return res, nil
 		}
 		if err != nil {

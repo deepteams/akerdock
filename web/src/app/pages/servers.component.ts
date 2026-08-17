@@ -91,6 +91,19 @@ type PrivateKey = components['schemas']['PrivateKey'];
               />
             </div>
           </div>
+          @if (user.trim() && user.trim() !== 'root') {
+            <label class="akd-check">
+              <input type="checkbox" name="useSudo" [(ngModel)]="useSudo" [disabled]="busy()" />
+              Escalate remote commands with sudo
+            </label>
+            <span class="akd-field__hint">
+              AkerDock signs in with an SSH key and has no password to type when sudo prompts, so
+              the user needs a passwordless sudoers entry — on the server, run:
+              <code>echo '{{ user.trim() }} ALL=(ALL) NOPASSWD: ALL' | sudo tee
+                /etc/sudoers.d/90-akerdock</code>. Without sudo, the user must own
+              <code>/var/lib/akerdock</code> and belong to the <code>docker</code> group.
+            </span>
+          }
           <div class="akd-field">
             <label class="akd-field__label" for="sv-key">Private key</label>
             <div class="akd-select">
@@ -251,6 +264,7 @@ export class ServersComponent {
   protected host = '';
   protected port = 22;
   protected user = 'root';
+  protected useSudo = false;
   protected privateKeyUuid = '';
   protected isBuildServer = false;
 
@@ -305,6 +319,7 @@ export class ServersComponent {
         host: this.host.trim(),
         port: this.port,
         user: this.user.trim(),
+        use_sudo: this.user.trim() !== 'root' && this.useSudo,
         private_key_uuid: this.privateKeyUuid,
         ssh_timeout_seconds: 30,
         is_build_server: this.isBuildServer,

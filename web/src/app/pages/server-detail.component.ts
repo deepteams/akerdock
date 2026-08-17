@@ -650,8 +650,8 @@ const TABS: readonly { id: TabId; label: string }[] = [
             @case ('settings') {
               <akd-card title="Settings">
                 <p class="akd-muted intro">
-                  Changing host, port or user puts the server back in <em>pending</em>: it must be
-                  validated again before anything deploys to it.
+                  Changing host, port, user or sudo escalation puts the server back in
+                  <em>pending</em>: it must be validated again before anything deploys to it.
                 </p>
                 <form class="form" (ngSubmit)="save()">
                   <div class="akd-field">
@@ -711,6 +711,24 @@ const TABS: readonly { id: TabId; label: string }[] = [
                       />
                     </div>
                   </div>
+                  @if (user.trim() && user.trim() !== 'root') {
+                    <label class="akd-check">
+                      <input
+                        type="checkbox"
+                        name="useSudo"
+                        [(ngModel)]="useSudo"
+                        [disabled]="busy()"
+                      />
+                      Escalate remote commands with sudo
+                    </label>
+                    <span class="akd-field__hint">
+                      AkerDock signs in with an SSH key and has no password to type when sudo
+                      prompts, so the user needs a passwordless sudoers entry — on the server, run:
+                      <code>echo '{{ user.trim() }} ALL=(ALL) NOPASSWD: ALL' | sudo tee
+                        /etc/sudoers.d/90-akerdock</code>. Without sudo, the user must own
+                      <code>/var/lib/akerdock</code> and belong to the <code>docker</code> group.
+                    </span>
+                  }
                   <div>
                     <button
                       class="akd-btn akd-btn--primary"
@@ -1105,6 +1123,7 @@ export class ServerDetailComponent {
   protected host = '';
   protected port = 22;
   protected user = 'root';
+  protected useSudo = false;
   protected expiringDays: number | null = null;
 
   protected readonly dnsCredentials = signal<DnsCredential[]>([]);
@@ -1250,6 +1269,7 @@ export class ServerDetailComponent {
     this.host = server.host;
     this.port = server.port;
     this.user = server.user;
+    this.useSudo = server.use_sudo ?? false;
     this.proxyType = (server.proxy_type as 'traefik' | 'none' | undefined) ?? 'traefik';
     this.proxyHttpPort = server.proxy_http_port ?? 80;
     this.proxyHttpsPort = server.proxy_https_port ?? 443;
@@ -1301,6 +1321,7 @@ export class ServerDetailComponent {
         host: this.host.trim(),
         port: this.port,
         user: this.user.trim(),
+        use_sudo: this.user.trim() !== 'root' && this.useSudo,
       });
       this.setServer(updated);
       this.notice.set('Settings saved.');

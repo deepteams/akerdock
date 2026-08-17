@@ -51,8 +51,8 @@ func (q *Queries) CountServersUsingPrivateKey(ctx context.Context, privateKeyID 
 
 const createServer = `-- name: CreateServer :one
 
-INSERT INTO servers (team_id, name, description, host, port, ssh_user, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO servers (team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING id, uuid, team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, status, observed_at, unreachable_since, os_name, architecture, docker_version, is_localhost, is_build_server, wildcard_domain, proxy_type, proxy_desired_state, proxy_observed_status, proxy_http_port, proxy_https_port, concurrent_builds, deployment_queue_limit, cleanup_enabled, cleanup_disk_threshold_pct, cleanup_cron, cleanup_prune_volumes, cleanup_prune_networks, sentinel_enabled, sentinel_token_hash, sentinel_push_interval_seconds, sentinel_metrics_retention_days, log_drain_kind, log_drain_config_enc, ca_cert, ca_key_enc, cloud_credential_id, cloud_external_id, created_by, updated_by, created_at, updated_at, deleted_at, version, host_key_fingerprint, dns_credential_id, cleanup_next_run_at, cleanup_last_run_at
 `
 
@@ -63,6 +63,7 @@ type CreateServerParams struct {
 	Host              string
 	Port              int32
 	SshUser           string
+	UseSudo           bool
 	SshTimeoutSeconds int32
 	PrivateKeyID      int64
 	IsBuildServer     bool
@@ -82,6 +83,7 @@ func (q *Queries) CreateServer(ctx context.Context, arg CreateServerParams) (Ser
 		arg.Host,
 		arg.Port,
 		arg.SshUser,
+		arg.UseSudo,
 		arg.SshTimeoutSeconds,
 		arg.PrivateKeyID,
 		arg.IsBuildServer,
@@ -958,18 +960,19 @@ func (q *Queries) SoftDeleteServer(ctx context.Context, id int64) (int64, error)
 const updateServer = `-- name: UpdateServer :execrows
 UPDATE servers SET
     name = $2, description = $3, host = $4, port = $5, ssh_user = $6,
+    use_sudo = $15,
     ssh_timeout_seconds = $7, private_key_id = $8, is_build_server = $9,
     wildcard_domain = $10, proxy_type = $11, proxy_http_port = $12,
-    proxy_https_port = $13, status = $14, dns_credential_id = $15,
-    cleanup_enabled = $16,
-    cleanup_cron = $17,
-    cleanup_disk_threshold_pct = $18,
-    cleanup_prune_volumes = $19,
-    cleanup_prune_networks = $20,
+    proxy_https_port = $13, status = $14, dns_credential_id = $16,
+    cleanup_enabled = $17,
+    cleanup_cron = $18,
+    cleanup_disk_threshold_pct = $19,
+    cleanup_prune_volumes = $20,
+    cleanup_prune_networks = $21,
     -- The schedule may have changed: the scheduler recomputes the window.
     cleanup_next_run_at = NULL,
     updated_at = now(), version = version + 1
-WHERE id = $1 AND version = $21 AND deleted_at IS NULL
+WHERE id = $1 AND version = $22 AND deleted_at IS NULL
 `
 
 type UpdateServerParams struct {
@@ -987,6 +990,7 @@ type UpdateServerParams struct {
 	ProxyHttpPort           int32
 	ProxyHttpsPort          int32
 	Status                  ServerStatus
+	UseSudo                 bool
 	DnsCredentialID         *int64
 	CleanupEnabled          bool
 	CleanupCron             *string
@@ -1012,6 +1016,7 @@ func (q *Queries) UpdateServer(ctx context.Context, arg UpdateServerParams) (int
 		arg.ProxyHttpPort,
 		arg.ProxyHttpsPort,
 		arg.Status,
+		arg.UseSudo,
 		arg.DnsCredentialID,
 		arg.CleanupEnabled,
 		arg.CleanupCron,

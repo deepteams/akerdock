@@ -5122,12 +5122,15 @@ type Server struct {
 	SshTimeoutSeconds   *int             `json:"ssh_timeout_seconds,omitempty"`
 
 	// Status Server lifecycle (§21.2).
-	Status         *ServerStatus `json:"status,omitempty"`
-	UpdatedAt      *time.Time    `json:"updated_at,omitempty"`
-	User           string        `json:"user"`
-	Uuid           *string       `json:"uuid,omitempty"`
-	Version        *int          `json:"version,omitempty"`
-	WildcardDomain *string       `json:"wildcard_domain,omitempty"`
+	Status    *ServerStatus `json:"status,omitempty"`
+	UpdatedAt *time.Time    `json:"updated_at,omitempty"`
+
+	// UseSudo Every remote command is escalated through non-interactive `sudo -n` (ADR-076, §3.1 non-root contract).
+	UseSudo        *bool   `json:"use_sudo,omitempty"`
+	User           string  `json:"user"`
+	Uuid           *string `json:"uuid,omitempty"`
+	Version        *int    `json:"version,omitempty"`
+	WildcardDomain *string `json:"wildcard_domain,omitempty"`
 }
 
 // ServerArchitecture Architecture detected at validation.
@@ -5170,6 +5173,9 @@ type ServerCreate struct {
 	ProxyType         *ServerCreateProxyType `json:"proxy_type,omitempty"`
 	SshTimeoutSeconds *int                   `json:"ssh_timeout_seconds,omitempty"`
 
+	// UseSudo Escalate every remote command through non-interactive `sudo -n` (ADR-076) — the non-root contract of §3.1. Requires a passwordless sudoers entry for the SSH user (`NOPASSWD: ALL`): the connection is authenticated with an SSH key, so there is no password to type when sudo prompts. Pointless for root. The interactive server terminal is never escalated.
+	UseSudo *bool `json:"use_sudo,omitempty"`
+
 	// User SSH user (experimental non-root, requires sudo NOPASSWD, §3.1).
 	User *string `json:"user,omitempty"`
 
@@ -5208,7 +5214,7 @@ type ServerResource struct {
 // ServerResourceType Resource type (one-click services will arrive in P2).
 type ServerResourceType string
 
-// ServerUpdate Partial update. Changing `host`, `port`, `user` or `private_key_uuid` moves the server back to `pending` (revalidation required).
+// ServerUpdate Partial update. Changing `host`, `port`, `user`, `use_sudo` or `private_key_uuid` moves the server back to `pending` (revalidation required).
 type ServerUpdate struct {
 	// CleanupCron Cron schedule of the cleanup (§3.7); NULL = no cron.
 	CleanupCron *string `json:"cleanup_cron,omitempty"`
@@ -5237,8 +5243,11 @@ type ServerUpdate struct {
 	ProxyHttpsPort    *int                   `json:"proxy_https_port,omitempty"`
 	ProxyType         *ServerUpdateProxyType `json:"proxy_type,omitempty"`
 	SshTimeoutSeconds *int                   `json:"ssh_timeout_seconds,omitempty"`
-	User              *string                `json:"user,omitempty"`
-	WildcardDomain    *string                `json:"wildcard_domain,omitempty"`
+
+	// UseSudo Escalate every remote command through non-interactive `sudo -n` (ADR-076); requires a passwordless sudoers entry for the SSH user. Changing it triggers revalidation.
+	UseSudo        *bool   `json:"use_sudo,omitempty"`
+	User           *string `json:"user,omitempty"`
+	WildcardDomain *string `json:"wildcard_domain,omitempty"`
 }
 
 // ServerUpdateProxyType defines model for ServerUpdate.ProxyType.

@@ -53,6 +53,9 @@ type rescovDB struct {
 	beginErr   error
 	commitErr  error
 	calls      map[string]int
+	// lastArgs keeps the most recent positional arguments per query, for the
+	// few tests that assert WHAT was written, not only the status code.
+	lastArgs map[string][]any
 }
 
 func rescovNewDB() *rescovDB {
@@ -64,6 +67,7 @@ func rescovNewDB() *rescovDB {
 		rowsOn:    map[string]int{},
 		execTagOn: map[string]string{},
 		calls:     map[string]int{},
+		lastArgs:  map[string][]any{},
 	}
 }
 
@@ -93,8 +97,9 @@ func (db *rescovDB) failure(name string) error {
 	return nil
 }
 
-func (db *rescovDB) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+func (db *rescovDB) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
 	name := rescovQueryName(sql)
+	db.lastArgs[name] = args
 	if err := db.failure(name); err != nil {
 		return pgconn.CommandTag{}, err
 	}
@@ -120,8 +125,9 @@ func (db *rescovDB) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, er
 	return &rescovRows{db: db, remaining: remaining}, nil
 }
 
-func (db *rescovDB) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+func (db *rescovDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 	name := rescovQueryName(sql)
+	db.lastArgs[name] = args
 	err := db.failure(name)
 	if err == nil && db.noRowsOn[name] {
 		err = pgx.ErrNoRows

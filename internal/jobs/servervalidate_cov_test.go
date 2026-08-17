@@ -183,6 +183,56 @@ func TestServalcovExecute(t *testing.T) {
 		}
 	})
 
+	t.Run("a use_sudo server wraps every command in sudo -n", func(t *testing.T) {
+		// The fake row fills every bool column true, so this server IS
+		// use_sudo: the whole validation must ride the ADR-076 escalation.
+		log := &deployrunCommandLog{}
+		h, q, _ := servalcovValidate(t, func(command string) (string, uint32) {
+			log.record(command)
+			return servalcovHost(command)
+		})
+		if _, err := h.Execute(ctx, job, queue.NewStepRecorder(q, job)); err != nil {
+			t.Fatal(err)
+		}
+		if len(log.matching("LC_ALL=C sudo -n -- sh -c '")) != len(log.matching()) {
+			t.Fatalf("some commands escaped the sudo wrap: %q", log.matching())
+		}
+		if len(log.matching("sudo -n -- sh -c 'true'")) == 0 {
+			t.Fatal("the check_sudo probe never ran")
+		}
+	})
+
+	t.Run("without use_sudo no command is escalated", func(t *testing.T) {
+		log := &deployrunCommandLog{}
+		h, q, db := servalcovValidate(t, func(command string) (string, uint32) {
+			log.record(command)
+			return servalcovHost(command)
+		})
+		db.bools["GetServerByID"] = false
+		// All-false bools also clear is_build_server, which would send the
+		// validation into the proxy bootstrap; route nothing instead.
+		db.enums["ProxyType"] = "none"
+		if _, err := h.Execute(ctx, job, queue.NewStepRecorder(q, job)); err != nil {
+			t.Fatal(err)
+		}
+		if wrapped := log.matching("sudo -n"); len(wrapped) != 0 {
+			t.Fatalf("a non-sudo server saw escalated commands: %q", wrapped)
+		}
+	})
+
+	t.Run("a use_sudo server that cannot escalate fails its own step", func(t *testing.T) {
+		h, q, _ := servalcovValidate(t, func(command string) (string, uint32) {
+			if strings.Contains(command, "sudo -n -- sh -c 'true'") {
+				return "", 1
+			}
+			return servalcovHost(command)
+		})
+		_, err := h.Execute(ctx, job, queue.NewStepRecorder(q, job))
+		if err == nil || !strings.Contains(err.Error(), "NOPASSWD") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
 	t.Run("nixpacks failing does not fail the validation", func(t *testing.T) {
 		h, q, _ := servalcovValidate(t, func(command string) (string, uint32) {
 			if strings.Contains(command, nixpacksBin) {

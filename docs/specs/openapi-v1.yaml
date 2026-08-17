@@ -11583,6 +11583,16 @@ components:
           type: string
           default: root
           description: SSH user (experimental non-root, requires sudo NOPASSWD, §3.1).
+        use_sudo:
+          type: boolean
+          default: false
+          description: >-
+            Escalate every remote command through non-interactive `sudo -n`
+            (ADR-076) — the non-root contract of §3.1. Requires a passwordless
+            sudoers entry for the SSH user (`NOPASSWD: ALL`): the connection
+            is authenticated with an SSH key, so there is no password to type
+            when sudo prompts. Pointless for root. The interactive server
+            terminal is never escalated.
         private_key_uuid:
           type: string
           description: Private SSH key of the same team (INV-002).
@@ -11632,7 +11642,7 @@ components:
     ServerUpdate:
       type: object
       description: >-
-        Partial update. Changing `host`, `port`, `user` or
+        Partial update. Changing `host`, `port`, `user`, `use_sudo` or
         `private_key_uuid` moves the server back to `pending` (revalidation
         required).
       properties:
@@ -11650,6 +11660,12 @@ components:
           maximum: 65535
         user:
           type: string
+        use_sudo:
+          type: boolean
+          description: >-
+            Escalate every remote command through non-interactive `sudo -n`
+            (ADR-076); requires a passwordless sudoers entry for the SSH
+            user. Changing it triggers revalidation.
         private_key_uuid:
           type: string
         ssh_timeout_seconds:
@@ -11735,6 +11751,11 @@ components:
           type: integer
         user:
           type: string
+        use_sudo:
+          type: boolean
+          description: >-
+            Every remote command is escalated through non-interactive
+            `sudo -n` (ADR-076, §3.1 non-root contract).
         private_key_uuid:
           type: string
         ssh_timeout_seconds:

@@ -104,6 +104,27 @@ func TestRescovCreateServer(t *testing.T) {
 			`"wildcard_domain":"*.apps.example.test","private_key_uuid":"`+fixtureUUID+`",`+
 			`"dns_credential_uuid":"`+fixtureUUID+`"}`, http.StatusCreated, nil)
 	})
+	t.Run("use_sudo reaches the insert", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.CreateServer(rec, rescovReq(http.MethodPost, "/servers",
+			`{"name":"s","host":"h","user":"deploy","use_sudo":true,"private_key_uuid":"`+fixtureUUID+`"}`),
+			api.CreateServerParams{})
+		rescovWant(t, rec, http.StatusCreated)
+		// The only true boolean in this insert is use_sudo (is_build_server is
+		// not sent): the ADR-076 flag must be persisted, not dropped like the
+		// column was for 70 migrations.
+		var trueBools int
+		for _, arg := range db.lastArgs["CreateServer"] {
+			if b, ok := arg.(bool); ok && b {
+				trueBools++
+			}
+		}
+		if trueBools != 1 {
+			t.Fatalf("expected exactly one true boolean (use_sudo) in the insert args, got %d in %v",
+				trueBools, db.lastArgs["CreateServer"])
+		}
+	})
 }
 
 func TestRescovUpdateServer(t *testing.T) {
@@ -181,6 +202,29 @@ func TestRescovUpdateServer(t *testing.T) {
 		patch(t, `{"name":"n2"}`, http.StatusInternalServerError, func(db *rescovDB) {
 			db.errAt["GetServerByUUID"] = 2
 		})
+	})
+	t.Run("use_sudo toggled triggers revalidation", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.UpdateServer(rec, rescovReq(http.MethodPatch, "/servers/"+fixtureUUID, `{"use_sudo":true}`),
+			fixtureUUID, api.UpdateServerParams{IfMatch: `"1"`})
+		rescovWant(t, rec, http.StatusOK)
+		// The fixture row reads use_sudo=false, so the patch flips the
+		// execution identity of every remote command (ADR-076): the write must
+		// carry use_sudo=true AND status=pending — nothing proven by the last
+		// validation still holds.
+		var sawUseSudo, sawPending bool
+		for _, arg := range db.lastArgs["UpdateServer"] {
+			if b, ok := arg.(bool); ok && b {
+				sawUseSudo = true
+			}
+			if s, ok := arg.(store.ServerStatus); ok && s == store.ServerStatusPending {
+				sawPending = true
+			}
+		}
+		if !sawUseSudo || !sawPending {
+			t.Fatalf("use_sudo=%v pending=%v in update args %v", sawUseSudo, sawPending, db.lastArgs["UpdateServer"])
+		}
 	})
 	t.Run("full update success", func(t *testing.T) {
 		patch(t, `{"name":"n2","description":"d","host":"h2","port":2222,"user":"u2",`+

@@ -21,6 +21,24 @@ links:
 3. Run **Validate**: connectivity, prerequisites, Docker Engine, and the health checks.
 4. Set the wildcard domain if new resources should get an automatic subdomain.
 
+## A non-root user
+
+Root is the nominal contract; a non-root user works two ways, and the form shows the choice
+once the user is not `root`.
+
+- **Escalate remote commands with sudo** wraps every command the platform runs on the server
+  in non-interactive `sudo -n`. The connection is authenticated with an SSH key, so there is
+  no password to type when sudo prompts: the user needs a passwordless sudoers entry —
+  `echo 'deploy ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/90-akerdock` — and
+  validation proves it with its own `check_sudo` step before anything depends on it.
+- **Without sudo**, prepare the machine once by hand: give the user
+  `/var/lib/akerdock` (`sudo mkdir -p /var/lib/akerdock && sudo chown -R deploy: /var/lib/akerdock`)
+  and put them in the `docker` group (`sudo usermod -aG docker deploy`, new session required).
+
+Toggling the sudo option later moves the server back to *pending* — every command changes its
+execution identity, so nothing proven by the last validation still holds. The server terminal
+is never escalated: it is your session, type `sudo` yourself.
+
 ## Proxy and certificates
 
 - Start, stop and restart the proxy, read its logs, edit its configuration. **Stopping it cuts every inbound request on that server.**

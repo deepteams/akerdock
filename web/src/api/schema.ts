@@ -5052,6 +5052,11 @@ export interface components {
              * @default root
              */
             user: string;
+            /**
+             * @description Escalate every remote command through non-interactive `sudo -n` (ADR-076) — the non-root contract of §3.1. Requires a passwordless sudoers entry for the SSH user (`NOPASSWD: ALL`): the connection is authenticated with an SSH key, so there is no password to type when sudo prompts. Pointless for root. The interactive server terminal is never escalated.
+             * @default false
+             */
+            use_sudo: boolean;
             /** @description Private SSH key of the same team (INV-002). */
             private_key_uuid: string;
             /** @default 30 */
@@ -5082,13 +5087,15 @@ export interface components {
              */
             proxy_https_port: number;
         };
-        /** @description Partial update. Changing `host`, `port`, `user` or `private_key_uuid` moves the server back to `pending` (revalidation required). */
+        /** @description Partial update. Changing `host`, `port`, `user`, `use_sudo` or `private_key_uuid` moves the server back to `pending` (revalidation required). */
         ServerUpdate: {
             name?: string;
             description?: string | null;
             host?: string;
             port?: number;
             user?: string;
+            /** @description Escalate every remote command through non-interactive `sudo -n` (ADR-076); requires a passwordless sudoers entry for the SSH user. Changing it triggers revalidation. */
+            use_sudo?: boolean;
             private_key_uuid?: string;
             ssh_timeout_seconds?: number;
             /** @description DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01. */
@@ -5118,6 +5125,8 @@ export interface components {
             host: string;
             port: number;
             user: string;
+            /** @description Every remote command is escalated through non-interactive `sudo -n` (ADR-076, §3.1 non-root contract). */
+            use_sudo?: boolean;
             private_key_uuid: string;
             ssh_timeout_seconds?: number;
             /** @description DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01. */

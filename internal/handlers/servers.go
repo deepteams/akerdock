@@ -39,6 +39,7 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 		Host:              s.Host,
 		Port:              int(s.Port),
 		User:              s.SshUser,
+		UseSudo:           ptr(s.UseSudo),
 		PrivateKeyUuid:    privateKeyUUID,
 		SshTimeoutSeconds: ptr(int(s.SshTimeoutSeconds)),
 		IsBuildServer:     ptr(s.IsBuildServer),
@@ -218,9 +219,10 @@ func (a *API) CreateServer(w http.ResponseWriter, r *http.Request, params api.Cr
 	}
 
 	isBuild := body.IsBuildServer != nil && *body.IsBuildServer
+	useSudo := body.UseSudo != nil && *body.UseSudo
 	server, err := a.Store.CreateServer(r.Context(), store.CreateServerParams{
 		TeamID: id.TeamID, Name: body.Name, Description: body.Description,
-		Host: body.Host, Port: int32(port), SshUser: user,
+		Host: body.Host, Port: int32(port), SshUser: user, UseSudo: useSudo,
 		SshTimeoutSeconds: int32(timeout), PrivateKeyID: key.ID,
 		IsBuildServer: isBuild, WildcardDomain: body.WildcardDomain,
 		DnsCredentialID: dnsCredentialID,
@@ -296,6 +298,12 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 	}
 	if body.User != nil && *body.User != next.SshUser {
 		next.SshUser, connectivityChanged = *body.User, true
+	}
+	// Not connectivity in the TCP sense, but the same consequence: every
+	// remote command changes its execution identity (ADR-076), so nothing
+	// proven by the last validation still holds.
+	if body.UseSudo != nil && *body.UseSudo != next.UseSudo {
+		next.UseSudo, connectivityChanged = *body.UseSudo, true
 	}
 	if body.SshTimeoutSeconds != nil {
 		next.SshTimeoutSeconds = int32(*body.SshTimeoutSeconds)
@@ -399,7 +407,7 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 
 	rows, err := a.Store.UpdateServer(r.Context(), store.UpdateServerParams{
 		ID: server.ID, Name: next.Name, Description: next.Description,
-		Host: next.Host, Port: next.Port, SshUser: next.SshUser,
+		Host: next.Host, Port: next.Port, SshUser: next.SshUser, UseSudo: next.UseSudo,
 		SshTimeoutSeconds: next.SshTimeoutSeconds, PrivateKeyID: next.PrivateKeyID,
 		IsBuildServer: next.IsBuildServer, WildcardDomain: next.WildcardDomain,
 		DnsCredentialID: next.DnsCredentialID,

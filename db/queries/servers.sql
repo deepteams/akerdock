@@ -1,8 +1,8 @@
 -- Servers (§3, state machine §21.2).
 
 -- name: CreateServer :one
-INSERT INTO servers (team_id, name, description, host, port, ssh_user, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO servers (team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 RETURNING *;
 
 -- name: GetServerByUUID :one
@@ -27,6 +27,7 @@ SELECT * FROM servers WHERE deleted_at IS NULL AND status = 'ready';
 -- name: UpdateServer :execrows
 UPDATE servers SET
     name = $2, description = $3, host = $4, port = $5, ssh_user = $6,
+    use_sudo = sqlc.arg(use_sudo),
     ssh_timeout_seconds = $7, private_key_id = $8, is_build_server = $9,
     wildcard_domain = $10, proxy_type = $11, proxy_http_port = $12,
     proxy_https_port = $13, status = $14, dns_credential_id = sqlc.narg(dns_credential_id),

@@ -54,6 +54,22 @@ func Open(ctx context.Context, q KeyStore, keyring *envelope.Keyring, server sto
 	if err != nil {
 		return nil, err
 	}
-	return sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, pem,
-		time.Duration(server.SshTimeoutSeconds)*time.Second, HostKey(server))
+	return DialWithKey(ctx, server, pem)
+}
+
+// DialWithKey dials with an already-fetched PEM, applying the server's sudo
+// policy (ADR-076): a `use_sudo` server gets every command escalated through
+// `sudo -n` by the returned client. The few callers that dial around Open —
+// a test seam, a first-contact validation — go through here so the policy
+// has a single source, exactly as the host key pin does.
+func DialWithKey(ctx context.Context, server store.Server, pem string) (*sshexec.Client, error) {
+	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, pem,
+		max(time.Duration(server.SshTimeoutSeconds), 1)*time.Second, HostKey(server))
+	if err != nil {
+		return nil, err
+	}
+	if server.UseSudo {
+		client.EnableSudo()
+	}
+	return client, nil
 }

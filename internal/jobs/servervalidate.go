@@ -84,8 +84,7 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Fail(ctx, "the private key could not be decrypted — check the master key file (runbook key-rotation.md)")
 		return nil, err
 	}
-	timeout := max(time.Duration(server.SshTimeoutSeconds), 1) * time.Second
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem), timeout, serverdial.HostKey(server))
+	client, err := serverdial.DialWithKey(ctx, server, string(pem))
 	if errors.Is(err, sshexec.ErrHostKeyChanged) {
 		// Not a connectivity problem: the machine answering is not the one we
 		// onboarded. Either it was rebuilt — in which case an operator clears
@@ -109,6 +108,31 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		return nil, err
 	}
 	rec.Succeed(ctx, "connected; host key "+client.HostKeyFingerprint)
+
+	// Step 1.5 — the non-root contract (§3.1, ADR-076): a use_sudo server runs
+	// every later command under `sudo -n`, so prove the escalation works
+	// before any step fails for the wrong-looking reason. Its own step because
+	// §20.1 demands a DISTINCT error for interactive sudo — and because the
+	// remediation (a sudoers line) has nothing in common with the SSH one.
+	if server.UseSudo {
+		rec.Start(ctx, "check_sudo")
+		res, err := client.Run(ctx, "true")
+		if err == nil && res.ExitCode != 0 {
+			// The classified refusals (password prompt, sudo absent) arrive as
+			// errors already; anything else non-zero is still a broken
+			// escalation — a restricted sudoers, typically.
+			err = fmt.Errorf("sudo escalation failed (exit %d, %s) — the sudoers entry must allow "+
+				"the user to run any command without a password (NOPASSWD: ALL, §3.1)", res.ExitCode, stderrOf(res))
+		}
+		if err != nil {
+			rec.Fail(ctx, firstLine(err.Error()))
+			if statusErr := h.Store.SetServerStatus(ctx, store.SetServerStatusParams{ID: server.ID, Status: store.ServerStatusPending}); statusErr != nil {
+				return nil, statusErr
+			}
+			return nil, err
+		}
+		rec.Succeed(ctx, "passwordless sudo confirmed for "+server.SshUser)
+	}
 
 	// Step 2 — system facts: OS and architecture (amd64/arm64 only, §22.4).
 	rec.Start(ctx, "detect_system")
@@ -498,7 +522,8 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		// non-root is experimental) — spell out both exits instead of leaving
 		// a locale-dependent mkdir error alone.
 		return fmt.Errorf("proxy layout: %v (exit %d, %s) — the SSH user must be able to write "+
-			"/var/lib/akerdock: onboard the server as root, or pre-create it for the user "+
+			"/var/lib/akerdock: onboard the server as root, enable use_sudo on the server "+
+			"(passwordless sudo required, ADR-076), or pre-create it for the user "+
 			"(sudo mkdir -p /var/lib/akerdock && sudo chown -R <ssh-user>: /var/lib/akerdock)",
 			err, exitCode(res), stderrOf(res))
 	}

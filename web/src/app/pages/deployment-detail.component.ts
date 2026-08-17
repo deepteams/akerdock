@@ -133,6 +133,11 @@ const TERMINAL: Deployment['status'][] = ['succeeded', 'failed', 'cancelled', 's
           }
         </p>
       }
+      <!-- A failure outside a logged step (routing, waker provisioning, …)
+           leaves an all-green log: the recorded cause is the only trace. -->
+      @if (d.status === 'failed' && d.error_message) {
+        <p class="akd-error" role="alert">{{ d.error_message }}</p>
+      }
     }
 
     <akd-card title="Build logs" [padded]="false">
