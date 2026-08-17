@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -252,6 +253,16 @@ func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row 
 	if hfToken != "" {
 		env = append(env, "HF_TOKEN="+hfToken)
 	}
+	// The resource's own variables, LAST: the operator's explicit variable
+	// wins over anything managed — Docker keeps the final occurrence of a
+	// duplicated key. Same machinery as every resource (ADR-080 §1): shared
+	// {{scope.KEY}} references resolve, server-scoped variables inject
+	// unless the model overrides the key.
+	userEnv, err := h.renderModelEnv(ctx, row.Resource.ID)
+	if err != nil {
+		return err
+	}
+	env = append(env, userEnv...)
 
 	config := &container.Config{
 		Image: image, Env: env, Labels: labels,
@@ -314,6 +325,46 @@ func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row 
 
 func modelContainerPort() nat.Port {
 	return nat.Port(strconv.Itoa(inference.ContainerPort) + "/tcp")
+}
+
+// renderModelEnv decrypts the model's variables into KEY=VALUE, resolving
+// shared references and injecting server-scoped variables the model does not
+// override — the resource machinery, unchanged (ADR-080 §1).
+func (h *ModelRun) renderModelEnv(ctx context.Context, resourceID int64) ([]string, error) {
+	vars, err := h.Store.ListEnvVarsForDeploy(ctx, resourceID)
+	if err != nil {
+		return nil, err
+	}
+	shared, err := resolveSharedEnv(ctx, h.Store, h.Keyring, resourceID)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]string, 0, len(vars))
+	seen := map[string]bool{}
+	for _, v := range vars {
+		plaintext, err := h.Keyring.Decrypt("environment_variables", "value_enc", pguuid.String(v.Uuid), v.ValueEnc)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt variable %s: %w", v.Key, err)
+		}
+		value := string(plaintext)
+		if !v.IsLiteral {
+			value = shared.interpolate(value)
+		}
+		entries = append(entries, v.Key+"="+value)
+		seen[v.Key] = true
+	}
+	serverKeys := make([]string, 0, len(shared.server))
+	for k := range shared.server {
+		serverKeys = append(serverKeys, k)
+	}
+	sort.Strings(serverKeys)
+	for _, k := range serverKeys {
+		if seen[k] {
+			continue // the model's own variable wins
+		}
+		entries = append(entries, k+"="+shared.server[k])
+	}
+	return entries, nil
 }
 
 // waitModelReady waits on the container's health with a minutes-scale budget

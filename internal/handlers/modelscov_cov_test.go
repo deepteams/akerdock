@@ -173,6 +173,58 @@ func TestModelscovCommandAndCredentials(t *testing.T) {
 	})
 }
 
+// The follow-up UX tranche: one operation at a time, cancellable while
+// queued, variables and logs on the model.
+func TestModelscovOperationGuardAndFollowUp(t *testing.T) {
+	t.Run("a second start is refused while one is queued", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		db.countOne = true                              // CountActiveJobsByLockKey answers 1
+		db.noRowsOn["ListRunningModelsOnServer"] = true // a free GPU: the guard is what refuses
+		rec := httptest.NewRecorder()
+		a.StartModel(rec, rescovReq(http.MethodPost, "/models/"+fixtureUUID+"/start", `{}`), fixtureUUID)
+		rescovWant(t, rec, http.StatusConflict)
+		if !strings.Contains(rec.Body.String(), "already queued or running") {
+			t.Fatalf("the refusal must say why: %s", rec.Body.String())
+		}
+	})
+	t.Run("a queued job cancels; a started one refuses", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.CancelJob(rec, rescovReq(http.MethodPost, "/jobs/"+fixtureUUID+"/cancel", ``), fixtureUUID)
+		rescovWant(t, rec, http.StatusOK)
+		if !strings.Contains(rec.Body.String(), "cancelled") {
+			t.Fatalf("the cancelled job must come back cancelled: %s", rec.Body.String())
+		}
+		a2, db2 := rescovAPI(t)
+		db2.execTagOn["CancelQueuedJob"] = "UPDATE 0"
+		rec = httptest.NewRecorder()
+		a2.CancelJob(rec, rescovReq(http.MethodPost, "/jobs/"+fixtureUUID+"/cancel", ``), fixtureUUID)
+		rescovWant(t, rec, http.StatusConflict)
+	})
+	t.Run("model variables ride the resource machinery", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.ListModelEnvs(rec, rescovReq(http.MethodGet, "/models/"+fixtureUUID+"/envs", ``),
+			fixtureUUID, api.ListModelEnvsParams{})
+		rescovWant(t, rec, http.StatusOK)
+		rec = httptest.NewRecorder()
+		a.CreateModelEnv(rec, rescovReq(http.MethodPost, "/models/"+fixtureUUID+"/envs",
+			`{"key":"MY_VAR","value":"x","is_secret":false,"is_build_time":false,"is_literal":false,"is_multiline":false,"is_locked":false}`), fixtureUUID)
+		rescovWant(t, rec, http.StatusCreated)
+		rec = httptest.NewRecorder()
+		a.DeleteModelEnv(rec, rescovReq(http.MethodDelete, "/models/"+fixtureUUID+"/envs/"+fixtureUUID, ``),
+			fixtureUUID, fixtureUUID)
+		rescovWant(t, rec, http.StatusNoContent)
+	})
+	t.Run("logs need the agent channel", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.GetModelLogs(rec, rescovReq(http.MethodGet, "/models/"+fixtureUUID+"/logs", ``),
+			fixtureUUID, api.GetModelLogsParams{})
+		rescovWant(t, rec, http.StatusConflict)
+	})
+}
+
 func TestModelscovServerHFSurface(t *testing.T) {
 	t.Run("the token is stored enveloped, cleared explicitly, never echoed", func(t *testing.T) {
 		a, db := rescovAPI(t)

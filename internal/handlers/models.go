@@ -9,6 +9,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/httpapi"
 	"github.com/deepteams/akerdock/internal/inference"
 	"github.com/deepteams/akerdock/internal/jobs"
@@ -109,7 +111,7 @@ func engineFlagsFromAPI(in *[]api.EngineFlag) []inference.Flag {
 	return flags
 }
 
-func (a *API) modelToAPI(row modelRow) api.Model {
+func (a *API) modelToAPI(r *http.Request, row modelRow) api.Model {
 	m := api.Model{
 		Uuid:               ptr(uuidString(row.Resource.Uuid)),
 		Name:               row.Resource.Name,
@@ -144,6 +146,16 @@ func (a *API) modelToAPI(row modelRow) api.Model {
 	}
 	if row.Model.ShmSizeMb != nil {
 		m.ShmSizeMb = ptr(int(*row.Model.ShmSizeMb))
+	}
+	// The queued-or-running lifecycle job, when one exists: what the page
+	// shows, links to, and lets the operator cancel. Best effort — no job is
+	// simply no banner.
+	if job, err := a.Store.GetActiveJobByLockKey(r.Context(), ptr("deploy:model:"+uuidString(row.Resource.Uuid))); err == nil {
+		m.ActiveJob = &struct {
+			JobType string `json:"job_type"`
+			Status  string `json:"status"`
+			Uuid    string `json:"uuid"`
+		}{JobType: job.JobType, Status: string(job.Status), Uuid: uuidString(job.Uuid)}
 	}
 	return m
 }
@@ -182,7 +194,7 @@ func (a *API) ListModels(w http.ResponseWriter, r *http.Request, params api.List
 	rows, cursor := nextCursor(rows, limit, func(m store.ListModelsPageRow) int64 { return m.Resource.ID })
 	data := make([]api.Model, 0, len(rows))
 	for _, m := range rows {
-		data = append(data, a.modelToAPI(modelRowFromList(m)))
+		data = append(data, a.modelToAPI(r, modelRowFromList(m)))
 	}
 	httpapi.WriteJSON(w, http.StatusOK, struct {
 		Data       []api.Model `json:"data"`
@@ -357,7 +369,7 @@ func (a *API) CreateModel(w http.ResponseWriter, r *http.Request, params api.Cre
 	}
 	a.recordAudit(r, id, "model.create", "model", resource.Uuid)
 	w.Header().Set("ETag", etagFor(resource.Version))
-	httpapi.WriteJSON(w, http.StatusCreated, a.modelToAPI(modelRowFromGet(row)))
+	httpapi.WriteJSON(w, http.StatusCreated, a.modelToAPI(r, modelRowFromGet(row)))
 }
 
 // GetModel implements GET /models/{model_uuid} (permission: models:read).
@@ -371,7 +383,7 @@ func (a *API) GetModel(w http.ResponseWriter, r *http.Request, modelUuid api.Mod
 		return
 	}
 	w.Header().Set("ETag", etagFor(row.Resource.Version))
-	httpapi.WriteJSON(w, http.StatusOK, a.modelToAPI(modelRowFromGet(row)))
+	httpapi.WriteJSON(w, http.StatusOK, a.modelToAPI(r, modelRowFromGet(row)))
 }
 
 // UpdateModel implements PATCH /models/{model_uuid} (permission:
@@ -505,7 +517,7 @@ func (a *API) UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid api.
 	}
 	a.recordAudit(r, id, "model.update", "model", row.Resource.Uuid)
 	w.Header().Set("ETag", etagFor(updated.Resource.Version))
-	httpapi.WriteJSON(w, http.StatusOK, a.modelToAPI(modelRowFromGet(updated)))
+	httpapi.WriteJSON(w, http.StatusOK, a.modelToAPI(r, modelRowFromGet(updated)))
 }
 
 // DeleteModel implements DELETE /models/{model_uuid} (permission:
@@ -521,6 +533,11 @@ func (a *API) DeleteModel(w http.ResponseWriter, r *http.Request, modelUuid api.
 	}
 	job, err := a.enqueueModelJob(r, id, row.Resource.ID, row.Resource.Uuid, jobs.TypeModelDelete, "delete", 0)
 	if err != nil {
+		if errors.Is(err, errModelBusy) {
+			httpapi.WriteError(w, r, http.StatusConflict, "operation_in_progress",
+				"an operation is already queued or running for this model — cancel it from its banner, or let it finish")
+			return
+		}
 		a.internalError(w, r, "delete model", err)
 		return
 	}
@@ -575,6 +592,11 @@ func (a *API) StartModel(w http.ResponseWriter, r *http.Request, modelUuid api.M
 
 	job, err := a.enqueueModelJob(r, id, row.Resource.ID, row.Resource.Uuid, jobs.TypeModelStart, "start", stopFirst)
 	if err != nil {
+		if errors.Is(err, errModelBusy) {
+			httpapi.WriteError(w, r, http.StatusConflict, "operation_in_progress",
+				"an operation is already queued or running for this model — cancel it from its banner, or let it finish")
+			return
+		}
 		a.internalError(w, r, "start model", err)
 		return
 	}
@@ -604,6 +626,11 @@ func (a *API) modelLifecycle(w http.ResponseWriter, r *http.Request, modelUuid, 
 	}
 	job, err := a.enqueueModelJob(r, id, row.Resource.ID, row.Resource.Uuid, jobType, action, 0)
 	if err != nil {
+		if errors.Is(err, errModelBusy) {
+			httpapi.WriteError(w, r, http.StatusConflict, "operation_in_progress",
+				"an operation is already queued or running for this model — cancel it from its banner, or let it finish")
+			return
+		}
 		a.internalError(w, r, action+" model", err)
 		return
 	}
@@ -611,8 +638,20 @@ func (a *API) modelLifecycle(w http.ResponseWriter, r *http.Request, modelUuid, 
 	writeJobAccepted(w, job)
 }
 
+// errModelBusy marks "an operation is already queued or running" so the
+// callers answer 409 instead of stacking a second job in the queue.
+var errModelBusy = errors.New("model operation already queued or running")
+
 func (a *API) enqueueModelJob(r *http.Request, id *auth.Identity, resourceID int64, resourceUUID pgtype.UUID, jobType, action string, stopFirst int64) (store.Job, error) {
 	lockKey := "deploy:model:" + uuidString(resourceUUID)
+	// One operation at a time, at ENQUEUE time — the lock key already
+	// serializes execution, but two queued starts are two starts: the second
+	// one would re-run on a model that just started, for nothing.
+	if n, err := a.Store.CountActiveJobsByLockKey(r.Context(), ptr(lockKey)); err != nil {
+		return store.Job{}, err
+	} else if n > 0 {
+		return store.Job{}, errModelBusy
+	}
 	return queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
 		Queue:      "deploy",
 		Type:       jobType,
@@ -868,4 +907,126 @@ func (a *API) hubSearchHTTP(ctx context.Context, q string) ([]byte, error) {
 		return nil, fmt.Errorf("hub answered %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+}
+
+// --- environment variables (the resource machinery, ADR-080 §1) -----------
+
+// ListModelEnvs implements GET /models/{model_uuid}/envs (permission:
+// secrets:read): the same variable machinery every resource uses; they reach
+// the engine container at the next start.
+func (a *API) ListModelEnvs(w http.ResponseWriter, r *http.Request, modelUuid api.ModelUuid, params api.ListModelEnvsParams) {
+	id, ok := a.require(w, r, auth.PermSecretsRead)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveModel(w, r, id, modelUuid)
+	if !ok {
+		return
+	}
+	limit, ok := pageLimit(w, r, params.Limit)
+	if !ok {
+		return
+	}
+	after, ok := afterID(w, r, params.Cursor)
+	if !ok {
+		return
+	}
+	rows, err := a.Store.ListEnvVarsPage(r.Context(), store.ListEnvVarsPageParams{
+		ResourceID: row.Resource.ID, IsPreview: false, AfterID: after, PageLimit: limit + 1,
+	})
+	if err != nil {
+		a.internalError(w, r, "list model envs", err)
+		return
+	}
+	rows, cursor := nextCursor(rows, limit, func(v store.EnvironmentVariable) int64 { return v.ID })
+	data := make([]api.EnvironmentVariable, 0, len(rows))
+	for _, v := range rows {
+		data = append(data, a.envToAPI(id, v))
+	}
+	httpapi.WriteJSON(w, http.StatusOK, struct {
+		Data       []api.EnvironmentVariable `json:"data"`
+		NextCursor *string                   `json:"next_cursor"`
+	}{data, cursor})
+}
+
+// CreateModelEnv implements POST /models/{model_uuid}/envs (permission:
+// secrets:write).
+func (a *API) CreateModelEnv(w http.ResponseWriter, r *http.Request, modelUuid api.ModelUuid) {
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveModel(w, r, id, modelUuid)
+	if !ok {
+		return
+	}
+	var body api.EnvironmentVariableCreate
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid JSON body")
+		return
+	}
+	created, err := a.insertEnvVar(r, row.Resource.ID, body, false, nil)
+	if err != nil {
+		a.writeEnvError(w, r, err)
+		return
+	}
+	a.recordAudit(r, id, "model.env.create", "model", row.Resource.Uuid)
+	httpapi.WriteJSON(w, http.StatusCreated, a.envToAPI(id, created))
+}
+
+// DeleteModelEnv implements DELETE /models/{model_uuid}/envs/{env_uuid}
+// (permission: secrets:write).
+func (a *API) DeleteModelEnv(w http.ResponseWriter, r *http.Request, modelUuid api.ModelUuid, envUuid api.EnvUuid) {
+	id, ok := a.require(w, r, auth.PermSecretsWrite)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveModel(w, r, id, modelUuid)
+	if !ok {
+		return
+	}
+	v, ok := a.resolveEnvVar(w, r, row.Resource.ID, envUuid)
+	if !ok {
+		return
+	}
+	if rows, err := a.Store.DeleteEnvVar(r.Context(), v.ID); err != nil || rows == 0 {
+		a.internalError(w, r, "delete model env", err)
+		return
+	}
+	a.recordAudit(r, id, "model.env.delete", "model", row.Resource.Uuid)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// GetModelLogs implements GET /models/{model_uuid}/logs (permission:
+// logs:read): the engine container's last lines through the agent channel —
+// where the weight download and the startup narrate themselves. The
+// container carries the resource UUID as its name (INV-011).
+func (a *API) GetModelLogs(w http.ResponseWriter, r *http.Request, modelUuid api.ModelUuid, params api.GetModelLogsParams) {
+	id, ok := a.require(w, r, auth.PermLogsRead)
+	if !ok {
+		return
+	}
+	row, ok := a.resolveModel(w, r, id, modelUuid)
+	if !ok {
+		return
+	}
+	lines := 200
+	if params.Lines != nil && *params.Lines > 0 && *params.Lines <= 2000 {
+		lines = *params.Lines
+	}
+	rt, ok := a.agentRuntime(w, r, row.Model.ServerID)
+	if !ok {
+		return
+	}
+	out, err := containerLogsSnapshot(r.Context(), rt, uuidString(row.Resource.Uuid), lines)
+	if err != nil {
+		if dockerruntime.IsNotFound(err) {
+			httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+				"the model container does not exist on the server yet — start the model first")
+			return
+		}
+		a.internalError(w, r, "model logs", err)
+		return
+	}
+	httpapi.WriteJSON(w, http.StatusOK, map[string]any{"data": containerLogLines(out)})
 }

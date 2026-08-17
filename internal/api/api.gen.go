@@ -4498,6 +4498,12 @@ type MemberRoleUpdateRole string
 
 // Model An inference model resource (ADR-080).
 type Model struct {
+	// ActiveJob The queued or running lifecycle job of this model, when one exists — the platform refuses to queue a second one (409), and a queued job can be cancelled (POST /jobs/{uuid}/cancel).
+	ActiveJob *struct {
+		JobType string `json:"job_type"`
+		Status  string `json:"status"`
+		Uuid    string `json:"uuid"`
+	} `json:"active_job,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	Description *string   `json:"description,omitempty"`
 
@@ -6602,6 +6608,20 @@ type GetModelCommandParams struct {
 	Reveal *bool `form:"reveal,omitempty" json:"reveal,omitempty"`
 }
 
+// ListModelEnvsParams defines parameters for ListModelEnvs.
+type ListModelEnvsParams struct {
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items per page (1 to 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetModelLogsParams defines parameters for GetModelLogs.
+type GetModelLogsParams struct {
+	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
+}
+
 // StartModelJSONBody defines parameters for StartModel.
 type StartModelJSONBody struct {
 	// Swap Stop the running model of the same server first.
@@ -7243,6 +7263,9 @@ type PreviewModelCommandJSONRequestBody = ModelCommandPreviewRequest
 // UpdateModelJSONRequestBody defines body for UpdateModel for application/json ContentType.
 type UpdateModelJSONRequestBody = ModelUpdate
 
+// CreateModelEnvJSONRequestBody defines body for CreateModelEnv for application/json ContentType.
+type CreateModelEnvJSONRequestBody = EnvironmentVariableCreate
+
 // StartModelJSONRequestBody defines body for StartModel for application/json ContentType.
 type StartModelJSONRequestBody StartModelJSONBody
 
@@ -7802,6 +7825,9 @@ type ServerInterface interface {
 	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
+	// Cancel a job that has not started
+	// (POST /jobs/{job_uuid}/cancel)
+	CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
 	// Forget a dead-letter job
 	// (POST /jobs/{job_uuid}/forget)
 	ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
@@ -7838,6 +7864,18 @@ type ServerInterface interface {
 	// The endpoint API key
 	// (GET /models/{model_uuid}/credentials)
 	GetModelCredentials(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// List the model's environment variables
+	// (GET /models/{model_uuid}/envs)
+	ListModelEnvs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params ListModelEnvsParams)
+	// Add an environment variable to the model
+	// (POST /models/{model_uuid}/envs)
+	CreateModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// Delete an environment variable of the model
+	// (DELETE /models/{model_uuid}/envs/{env_uuid})
+	DeleteModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, envUuid EnvUuid)
+	// The model container's runtime logs
+	// (GET /models/{model_uuid}/logs)
+	GetModelLogs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelLogsParams)
 	// Restart a model
 	// (POST /models/{model_uuid}/restart)
 	RestartModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
@@ -8879,6 +8917,12 @@ func (_ Unimplemented) GetJob(w http.ResponseWriter, r *http.Request, jobUuid Jo
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Cancel a job that has not started
+// (POST /jobs/{job_uuid}/cancel)
+func (_ Unimplemented) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Forget a dead-letter job
 // (POST /jobs/{job_uuid}/forget)
 func (_ Unimplemented) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
@@ -8948,6 +8992,30 @@ func (_ Unimplemented) GetModelCommand(w http.ResponseWriter, r *http.Request, m
 // The endpoint API key
 // (GET /models/{model_uuid}/credentials)
 func (_ Unimplemented) GetModelCredentials(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the model's environment variables
+// (GET /models/{model_uuid}/envs)
+func (_ Unimplemented) ListModelEnvs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params ListModelEnvsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add an environment variable to the model
+// (POST /models/{model_uuid}/envs)
+func (_ Unimplemented) CreateModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an environment variable of the model
+// (DELETE /models/{model_uuid}/envs/{env_uuid})
+func (_ Unimplemented) DeleteModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, envUuid EnvUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The model container's runtime logs
+// (GET /models/{model_uuid}/logs)
+func (_ Unimplemented) GetModelLogs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelLogsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14557,6 +14625,38 @@ func (siw *ServerInterfaceWrapper) GetJob(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// CancelJob operation middleware
+func (siw *ServerInterfaceWrapper) CancelJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "job_uuid" -------------
+	var jobUuid JobUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "job_uuid", chi.URLParam(r, "job_uuid"), &jobUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "job_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelJob(w, r, jobUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ForgetJob operation middleware
 func (siw *ServerInterfaceWrapper) ForgetJob(w http.ResponseWriter, r *http.Request) {
 
@@ -15018,6 +15118,188 @@ func (siw *ServerInterfaceWrapper) GetModelCredentials(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetModelCredentials(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListModelEnvs operation middleware
+func (siw *ServerInterfaceWrapper) ListModelEnvs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListModelEnvsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModelEnvs(w, r, modelUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateModelEnv operation middleware
+func (siw *ServerInterfaceWrapper) CreateModelEnv(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateModelEnv(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteModelEnv operation middleware
+func (siw *ServerInterfaceWrapper) DeleteModelEnv(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "env_uuid" -------------
+	var envUuid EnvUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "env_uuid", chi.URLParam(r, "env_uuid"), &envUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "env_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteModelEnv(w, r, modelUuid, envUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetModelLogs operation middleware
+func (siw *ServerInterfaceWrapper) GetModelLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetModelLogsParams
+
+	// ------------- Optional query parameter "lines" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lines", r.URL.Query(), &params.Lines, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lines"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lines", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetModelLogs(w, r, modelUuid, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -21686,6 +21968,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/jobs/{job_uuid}", wrapper.GetJob)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/jobs/{job_uuid}/cancel", wrapper.CancelJob)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/jobs/{job_uuid}/forget", wrapper.ForgetJob)
 	})
 	r.Group(func(r chi.Router) {
@@ -21720,6 +22005,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/models/{model_uuid}/credentials", wrapper.GetModelCredentials)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/{model_uuid}/envs", wrapper.ListModelEnvs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/{model_uuid}/envs", wrapper.CreateModelEnv)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/models/{model_uuid}/envs/{env_uuid}", wrapper.DeleteModelEnv)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/{model_uuid}/logs", wrapper.GetModelLogs)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/models/{model_uuid}/restart", wrapper.RestartModel)
@@ -31781,6 +32078,101 @@ func (response GetJob429JSONResponse) VisitGetJobResponse(w http.ResponseWriter)
 	return err
 }
 
+type CancelJobRequestObject struct {
+	JobUuid JobUuid `json:"job_uuid"`
+}
+
+type CancelJobResponseObject interface {
+	VisitCancelJobResponse(w http.ResponseWriter) error
+}
+
+type CancelJob200JSONResponse Job
+
+func (response CancelJob200JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CancelJob401JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CancelJob403JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CancelJob404JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CancelJob409JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CancelJob429JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ForgetJobRequestObject struct {
 	JobUuid JobUuid `json:"job_uuid"`
 	Body    *ForgetJobJSONRequestBody
@@ -32874,6 +33266,365 @@ func (response GetModelCredentials404JSONResponse) VisitGetModelCredentialsRespo
 type GetModelCredentials429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response GetModelCredentials429JSONResponse) VisitGetModelCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvsRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Params    ListModelEnvsParams
+}
+
+type ListModelEnvsResponseObject interface {
+	VisitListModelEnvsResponse(w http.ResponseWriter) error
+}
+
+type ListModelEnvs200JSONResponse struct {
+	Data []EnvironmentVariable `json:"data"`
+
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListModelEnvs200JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListModelEnvs401JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListModelEnvs404JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListModelEnvs429JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnvRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Body      *CreateModelEnvJSONRequestBody
+}
+
+type CreateModelEnvResponseObject interface {
+	VisitCreateModelEnvResponse(w http.ResponseWriter) error
+}
+
+type CreateModelEnv201JSONResponse EnvironmentVariable
+
+func (response CreateModelEnv201JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateModelEnv400JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateModelEnv401JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateModelEnv403JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateModelEnv404JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateModelEnv409JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreateModelEnv422JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateModelEnv429JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnvRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	EnvUuid   EnvUuid   `json:"env_uuid"`
+}
+
+type DeleteModelEnvResponseObject interface {
+	VisitDeleteModelEnvResponse(w http.ResponseWriter) error
+}
+
+type DeleteModelEnv204Response struct {
+}
+
+func (response DeleteModelEnv204Response) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteModelEnv401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteModelEnv401JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnv403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteModelEnv403JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnv404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteModelEnv404JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnv429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteModelEnv429JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogsRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Params    GetModelLogsParams
+}
+
+type GetModelLogsResponseObject interface {
+	VisitGetModelLogsResponse(w http.ResponseWriter) error
+}
+
+type GetModelLogs200JSONResponse struct {
+	Data []LogLine `json:"data"`
+}
+
+func (response GetModelLogs200JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetModelLogs401JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetModelLogs404JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetModelLogs409JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetModelLogs429JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -46241,6 +46992,9 @@ type StrictServerInterface interface {
 	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(ctx context.Context, request GetJobRequestObject) (GetJobResponseObject, error)
+	// Cancel a job that has not started
+	// (POST /jobs/{job_uuid}/cancel)
+	CancelJob(ctx context.Context, request CancelJobRequestObject) (CancelJobResponseObject, error)
 	// Forget a dead-letter job
 	// (POST /jobs/{job_uuid}/forget)
 	ForgetJob(ctx context.Context, request ForgetJobRequestObject) (ForgetJobResponseObject, error)
@@ -46277,6 +47031,18 @@ type StrictServerInterface interface {
 	// The endpoint API key
 	// (GET /models/{model_uuid}/credentials)
 	GetModelCredentials(ctx context.Context, request GetModelCredentialsRequestObject) (GetModelCredentialsResponseObject, error)
+	// List the model's environment variables
+	// (GET /models/{model_uuid}/envs)
+	ListModelEnvs(ctx context.Context, request ListModelEnvsRequestObject) (ListModelEnvsResponseObject, error)
+	// Add an environment variable to the model
+	// (POST /models/{model_uuid}/envs)
+	CreateModelEnv(ctx context.Context, request CreateModelEnvRequestObject) (CreateModelEnvResponseObject, error)
+	// Delete an environment variable of the model
+	// (DELETE /models/{model_uuid}/envs/{env_uuid})
+	DeleteModelEnv(ctx context.Context, request DeleteModelEnvRequestObject) (DeleteModelEnvResponseObject, error)
+	// The model container's runtime logs
+	// (GET /models/{model_uuid}/logs)
+	GetModelLogs(ctx context.Context, request GetModelLogsRequestObject) (GetModelLogsResponseObject, error)
 	// Restart a model
 	// (POST /models/{model_uuid}/restart)
 	RestartModel(ctx context.Context, request RestartModelRequestObject) (RestartModelResponseObject, error)
@@ -49662,6 +50428,32 @@ func (sh *strictHandler) GetJob(w http.ResponseWriter, r *http.Request, jobUuid 
 	}
 }
 
+// CancelJob operation middleware
+func (sh *strictHandler) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
+	var request CancelJobRequestObject
+
+	request.JobUuid = jobUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelJob(ctx, request.(CancelJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelJobResponseObject); ok {
+		if err := validResponse.VisitCancelJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ForgetJob operation middleware
 func (sh *strictHandler) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
 	var request ForgetJobRequestObject
@@ -50004,6 +50796,120 @@ func (sh *strictHandler) GetModelCredentials(w http.ResponseWriter, r *http.Requ
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetModelCredentialsResponseObject); ok {
 		if err := validResponse.VisitGetModelCredentialsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListModelEnvs operation middleware
+func (sh *strictHandler) ListModelEnvs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params ListModelEnvsParams) {
+	var request ListModelEnvsRequestObject
+
+	request.ModelUuid = modelUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListModelEnvs(ctx, request.(ListModelEnvsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListModelEnvs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListModelEnvsResponseObject); ok {
+		if err := validResponse.VisitListModelEnvsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateModelEnv operation middleware
+func (sh *strictHandler) CreateModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request CreateModelEnvRequestObject
+
+	request.ModelUuid = modelUuid
+
+	var body CreateModelEnvJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateModelEnv(ctx, request.(CreateModelEnvRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateModelEnv")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateModelEnvResponseObject); ok {
+		if err := validResponse.VisitCreateModelEnvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteModelEnv operation middleware
+func (sh *strictHandler) DeleteModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, envUuid EnvUuid) {
+	var request DeleteModelEnvRequestObject
+
+	request.ModelUuid = modelUuid
+	request.EnvUuid = envUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteModelEnv(ctx, request.(DeleteModelEnvRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteModelEnv")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteModelEnvResponseObject); ok {
+		if err := validResponse.VisitDeleteModelEnvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetModelLogs operation middleware
+func (sh *strictHandler) GetModelLogs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelLogsParams) {
+	var request GetModelLogsRequestObject
+
+	request.ModelUuid = modelUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetModelLogs(ctx, request.(GetModelLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetModelLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetModelLogsResponseObject); ok {
+		if err := validResponse.VisitGetModelLogsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

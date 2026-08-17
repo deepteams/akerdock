@@ -7486,6 +7486,138 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
+  /models/{model_uuid}/envs:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    get:
+      tags: [Models]
+      operationId: listModelEnvs
+      summary: List the model's environment variables
+      description: >-
+        The same variable machinery every resource uses (ADR-080 §1) —
+        secrets enveloped, values redacted without read:sensitive. They reach
+        the engine container's environment at the next start.
+      x-required-permission: secrets:read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page of variables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EnvironmentVariable"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Models]
+      operationId: createModelEnv
+      summary: Add an environment variable to the model
+      x-required-permission: secrets:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnvironmentVariableCreate"
+      responses:
+        "201":
+          description: Variable created — applied at the next start.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentVariable"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/envs/{env_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+      - $ref: "#/components/parameters/EnvUuid"
+    delete:
+      tags: [Models]
+      operationId: deleteModelEnv
+      summary: Delete an environment variable of the model
+      x-required-permission: secrets:write
+      responses:
+        "204":
+          description: Deleted — applied at the next start.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/logs:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    get:
+      tags: [Models]
+      operationId: getModelLogs
+      summary: The model container's runtime logs
+      description: >-
+        The last lines of the engine container, read through the agent
+        channel and never stored — where the weight download and the engine
+        startup actually narrate themselves. Poll it while a start job runs.
+      x-required-permission: logs:read
+      parameters:
+        - name: lines
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+      responses:
+        "200":
+          description: Log lines.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LogLine"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   /models/{model_uuid}/start:
     parameters:
       - $ref: "#/components/parameters/ModelUuid"
@@ -8361,6 +8493,37 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /jobs/{job_uuid}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/JobUuid"
+    post:
+      tags: [Jobs]
+      operationId: cancelJob
+      summary: Cancel a job that has not started
+      description: >-
+        Cancels a `scheduled`, `queued` or `retry_wait` job — the enqueue you
+        regret. A job already leased or running is not interrupted (409):
+        model and database jobs have no cooperative checkpoint, and killing
+        them mid-mutation would leave the server in a state nobody asked for.
+      x-required-permission: jobs:manage
+      responses:
+        "200":
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -12312,6 +12475,21 @@ components:
         server_gpu_name:
           type: string
           nullable: true
+        active_job:
+          nullable: true
+          description: >-
+            The queued or running lifecycle job of this model, when one
+            exists — the platform refuses to queue a second one (409), and a
+            queued job can be cancelled (POST /jobs/{uuid}/cancel).
+          type: object
+          required: [uuid, status, job_type]
+          properties:
+            uuid:
+              type: string
+            status:
+              type: string
+            job_type:
+              type: string
         status:
           type: string
           description: Desired status (running/stopped).

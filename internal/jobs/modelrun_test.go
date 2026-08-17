@@ -75,6 +75,10 @@ func modelrunFixture(t *testing.T, engine store.InferenceEngine, shmMB *int32) (
 	// The server row's bytea columns must scan as SQL NULL: a default-blob
 	// hf_token_enc would fail decryption instead of falling back (ADR-081).
 	db.blobs["GetServerByID"] = nil
+	// No user variables and no shared scopes by default: their fake rows
+	// would carry undecryptable value_enc blobs. The env test sets its own.
+	db.rows["ListEnvVarsForDeploy"] = 0
+	db.rows["ListSharedVariablesForResource"] = 0
 	uuid := pguuid.MustParse(jobFixtureUUID)
 	enc := prevjobsEncrypt(t, keyring, "models", "api_key_enc", []byte("akm_unit_key"))
 	row := store.GetModelByIDRow{

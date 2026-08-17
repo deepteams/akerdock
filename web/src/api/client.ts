@@ -1396,6 +1396,34 @@ export class AkerDockClient {
     return this.request<void>('DELETE', `/scheduled-tasks/${uuid}`);
   }
 
+  cancelJob(uuid: string) {
+    type Response =
+      paths['/jobs/{job_uuid}/cancel']['post']['responses']['200']['content']['application/json'];
+    return this.request<Response>('POST', `/jobs/${uuid}/cancel`);
+  }
+
+  listModelEnvs(modelUuid: string, query?: { cursor?: string; limit?: number }) {
+    type Response =
+      paths['/models/{model_uuid}/envs']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/models/${modelUuid}/envs`, { query });
+  }
+
+  createModelEnv(modelUuid: string, body: components['schemas']['EnvironmentVariableCreate']) {
+    type Response =
+      paths['/models/{model_uuid}/envs']['post']['responses']['201']['content']['application/json'];
+    return this.request<Response>('POST', `/models/${modelUuid}/envs`, { body });
+  }
+
+  deleteModelEnv(modelUuid: string, envUuid: string) {
+    return this.request<void>('DELETE', `/models/${modelUuid}/envs/${envUuid}`);
+  }
+
+  getModelLogs(modelUuid: string, query?: { lines?: number }) {
+    type Response =
+      paths['/models/{model_uuid}/logs']['get']['responses']['200']['content']['application/json'];
+    return this.request<Response>('GET', `/models/${modelUuid}/logs`, { query });
+  }
+
   // --- server Hugging Face surface (ADR-081) ---------------------------------------------------
 
   setServerHFToken(serverUuid: string, body: { token: string }) {

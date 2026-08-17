@@ -56,6 +56,13 @@ one-GPU machine — stop A, try B, come back to A — made one click each way.
 Parameter changes apply at the next start: serve flags are read once, when the engine
 process starts.
 
+One lifecycle operation runs at a time: a second start while one is queued is refused, and
+the page shows the active job — follow it, or cancel it while it has not started. The
+**Logs** card is the engine's own console (the weight download narrates itself there);
+switch on *Follow* while a start runs. **Environment variables** use the same machinery as
+every resource — shared references resolve, server variables inherit, and your variable
+wins over anything managed, `HF_TOKEN` included; they reach the engine at the next start.
+
 ## The API key
 
 Generated at creation, stored encrypted, passed to the engine's own `--api-key` — the

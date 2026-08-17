@@ -11,6 +11,23 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelQueuedJob = `-- name: CancelQueuedJob :execrows
+UPDATE jobs SET status = 'cancelled', finished_at = now(), updated_at = now()
+WHERE id = $1 AND status IN ('scheduled', 'queued', 'retry_wait')
+`
+
+// The enqueue you regret: only a job that has NOT started can be cancelled —
+// a leased/running job has no cooperative checkpoint in the model and
+// database families, and killing it mid-mutation would leave the server in
+// a state nobody asked for. Zero rows = not cancellable, the caller says why.
+func (q *Queries) CancelQueuedJob(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, cancelQueuedJob, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const countActiveJobsByLockKey = `-- name: CountActiveJobsByLockKey :one
 SELECT count(*) FROM jobs
 WHERE lock_key = $1 AND status IN ('scheduled', 'queued', 'leased', 'running', 'retry_wait')
@@ -213,6 +230,27 @@ func (q *Queries) ForgetDeadLetterJob(ctx context.Context, id int64) (int64, err
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const getActiveJobByLockKey = `-- name: GetActiveJobByLockKey :one
+SELECT uuid, status, job_type FROM jobs
+WHERE lock_key = $1 AND status IN ('scheduled', 'queued', 'leased', 'running', 'retry_wait')
+ORDER BY id DESC LIMIT 1
+`
+
+type GetActiveJobByLockKeyRow struct {
+	Uuid    pgtype.UUID
+	Status  JobStatus
+	JobType string
+}
+
+// The queued-or-running job of one lock key (ADR-080 UX): what the model
+// page shows, what the double-enqueue guard names in its 409.
+func (q *Queries) GetActiveJobByLockKey(ctx context.Context, lockKey *string) (GetActiveJobByLockKeyRow, error) {
+	row := q.db.QueryRow(ctx, getActiveJobByLockKey, lockKey)
+	var i GetActiveJobByLockKeyRow
+	err := row.Scan(&i.Uuid, &i.Status, &i.JobType)
+	return i, err
 }
 
 const getJobByIdempotencyKey = `-- name: GetJobByIdempotencyKey :one

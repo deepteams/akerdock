@@ -157,6 +157,35 @@ func (a *API) RetryJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUu
 	})
 }
 
+// CancelJob implements POST /jobs/{job_uuid}/cancel (permission:
+// jobs:manage): the enqueue you regret. Only a job that has not started is
+// cancellable — model and database jobs have no cooperative checkpoint, and
+// killing one mid-mutation would leave the server in a state nobody asked
+// for.
+func (a *API) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUuid) {
+	id, ok := a.require(w, r, auth.PermJobsManage)
+	if !ok {
+		return
+	}
+	job, ok := a.resolveJob(w, r, id, jobUuid)
+	if !ok {
+		return
+	}
+	rows, err := a.Store.CancelQueuedJob(r.Context(), job.ID)
+	if err != nil {
+		a.internalError(w, r, "cancel job", err)
+		return
+	}
+	if rows == 0 {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+			"this job already started (or finished) — only scheduled, queued and retry_wait jobs can be cancelled")
+		return
+	}
+	a.recordAudit(r, id, "job.cancel", "job", job.Uuid)
+	job.Status = store.JobStatusCancelled
+	httpapi.WriteJSON(w, http.StatusOK, a.jobToAPI(r, job))
+}
+
 // ForgetJob implements POST /jobs/{job_uuid}/forget (permission: write):
 // audited final closure of a dead-letter job (→ cancelled).
 func (a *API) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUuid) {

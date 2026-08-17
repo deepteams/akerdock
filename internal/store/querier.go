@@ -37,6 +37,11 @@ type Querier interface {
 	CanStartServerCleanup(ctx context.Context, serverID int64) (bool, error)
 	CancelJobsForDeployments(ctx context.Context, deploymentIds []int64) error
 	CancelQueuedDeployment(ctx context.Context, id int64) (int64, error)
+	// The enqueue you regret: only a job that has NOT started can be cancelled —
+	// a leased/running job has no cooperative checkpoint in the model and
+	// database families, and killing it mid-mutation would leave the server in
+	// a state nobody asked for. Zero rows = not cancellable, the caller says why.
+	CancelQueuedJob(ctx context.Context, id int64) (int64, error)
 	// HTTP idempotency (§24.1).
 	// Inserts the key, or returns the existing row when the key was already
 	// used: the caller compares the request hash and replays the response.
@@ -427,6 +432,9 @@ type Querier interface {
 	// Bearer token authentication (§10.3, ERD §12: prefix pre-filter then
 	// constant-time hash comparison in the application).
 	GetActiveApiTokensByPrefix(ctx context.Context, tokenPrefix string) ([]GetActiveApiTokensByPrefixRow, error)
+	// The queued-or-running job of one lock key (ADR-080 UX): what the model
+	// page shows, what the double-enqueue guard names in its 409.
+	GetActiveJobByLockKey(ctx context.Context, lockKey *string) (GetActiveJobByLockKeyRow, error)
 	GetAdoptionScanByID(ctx context.Context, id int64) (AdoptionScan, error)
 	GetAdoptionScanByUUIDForTeam(ctx context.Context, arg GetAdoptionScanByUUIDForTeamParams) (GetAdoptionScanByUUIDForTeamRow, error)
 	GetAgentTokenByHash(ctx context.Context, tokenHash string) (AgentToken, error)

@@ -1,6 +1,16 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  DestroyRef,
+  effect,
+  inject,
+  signal,
+  untracked,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
+import { ActionsMenuComponent, type ActionItem } from '../../ui/actions-menu/actions-menu.component';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
@@ -11,6 +21,8 @@ import type { components } from '../../api/schema';
 
 type Model = components['schemas']['Model'];
 type EngineFlag = components['schemas']['EngineFlag'];
+type EnvVar = components['schemas']['EnvironmentVariable'];
+type LogLine = components['schemas']['LogLine'];
 
 // One model (ADR-080): lifecycle with the soft occupied-GPU guard — a 409
 // names the running neighbour and the confirm IS the swap —, the serve
@@ -19,7 +31,7 @@ type EngineFlag = components['schemas']['EngineFlag'];
 @Component({
   selector: 'app-model-detail',
   standalone: true,
-  imports: [FormsModule, RouterLink, CardComponent, IconComponent, StatusBadgeComponent],
+  imports: [FormsModule, RouterLink, ActionsMenuComponent, CardComponent, IconComponent, StatusBadgeComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="akd-page">
@@ -33,34 +45,28 @@ type EngineFlag = components['schemas']['EngineFlag'];
           <akd-status-badge domain="resource" [state]="mo.status" />
           <akd-status-badge domain="resource" [state]="mo.observed_status ?? 'unknown'" />
           <span class="grow"></span>
-          <button
-            class="akd-btn akd-btn--primary"
-            type="button"
-            (click)="start()"
-            [disabled]="busy()"
-          >
-            Start
-          </button>
-          <button class="akd-btn akd-btn--secondary" type="button" (click)="stop()" [disabled]="busy()">
-            Stop
-          </button>
-          <button
-            class="akd-btn akd-btn--secondary"
-            type="button"
-            (click)="restart()"
-            [disabled]="busy()"
-          >
-            Restart
-          </button>
-          <button
-            class="akd-btn akd-btn--danger"
-            type="button"
-            (click)="remove()"
-            [disabled]="busy()"
-          >
-            Delete
-          </button>
+          <akd-actions-menu [items]="actions()" [disabled]="busy()" (selected)="runAction($event)" />
         </header>
+
+        @if (mo.active_job; as job) {
+          <div class="jobbanner" role="status">
+            <span>
+              <span class="akd-mono">{{ job.job_type }}</span> is {{ job.status }} —
+              <a [routerLink]="['/jobs', job.uuid]">follow the job</a>
+            </span>
+            <span class="grow"></span>
+            @if (job.status === 'queued' || job.status === 'scheduled' || job.status === 'retry_wait') {
+              <button
+                class="akd-btn akd-btn--secondary akd-btn--sm"
+                type="button"
+                (click)="cancelActiveJob(job.uuid)"
+                [disabled]="busy()"
+              >
+                Cancel
+              </button>
+            }
+          </div>
+        }
 
         @if (error(); as message) {
           <p class="akd-error" role="alert">{{ message }}</p>
@@ -143,6 +149,94 @@ type EngineFlag = components['schemas']['EngineFlag'];
           } @else {
             <p class="akd-muted">Loading…</p>
           }
+        </akd-card>
+
+        <akd-card title="Logs">
+          <p class="akd-muted intro">
+            The engine container's console — where the weight download and the startup narrate
+            themselves. Follow refreshes every few seconds while a start runs.
+          </p>
+          <div class="row">
+            <button
+              class="akd-btn akd-btn--secondary"
+              type="button"
+              (click)="loadLogs()"
+              [disabled]="busy()"
+            >
+              {{ logs() === null ? 'Load logs' : 'Refresh' }}
+            </button>
+            <label class="akd-check">
+              <input type="checkbox" name="followLogs" [ngModel]="follow()" (ngModelChange)="setFollow($event)" />
+              Follow
+            </label>
+          </div>
+          @if (logsError(); as message) {
+            <p class="akd-muted">{{ message }}</p>
+          } @else if (logs(); as lines) {
+            <div class="akd-log logs" tabindex="0" aria-label="Model logs">
+              @for (line of lines; track line.sequence) {
+                <div class="akd-log__line">
+                  <span class="akd-log__msg">{{ line.message }}</span>
+                </div>
+              }
+              @if (lines.length === 0) {
+                <div class="akd-log__line"><span class="akd-log__msg">— no output yet —</span></div>
+              }
+            </div>
+          }
+        </akd-card>
+
+        <akd-card title="Environment variables">
+          <p class="akd-muted intro">
+            The same variable machinery as every resource — shared {{ '{' }}{{ '{' }}scope.KEY{{ '}' }}{{ '}' }}
+            references resolve, server variables inherit. Your variable wins over anything managed,
+            HF_TOKEN included. Changes apply at the next start.
+          </p>
+          @for (env of envs(); track env.uuid) {
+            <div class="row">
+              <code class="akd-mono">{{ env.key }}</code>
+              <span class="akd-mono akd-muted envval">{{
+                env.is_redacted ? '••••••' : (env.value ?? '')
+              }}</span>
+              <span class="grow"></span>
+              <button
+                class="akd-iconbtn"
+                type="button"
+                aria-label="Delete variable"
+                (click)="deleteEnv(env.uuid ?? '')"
+                [disabled]="busy()"
+              >
+                <akd-icon name="x" [size]="14" />
+              </button>
+            </div>
+          }
+          <form class="row" (ngSubmit)="addEnv()">
+            <input
+              name="envKey"
+              class="akd-input akd-input--mono"
+              placeholder="KEY"
+              [(ngModel)]="envKey"
+              [disabled]="busy()"
+            />
+            <input
+              name="envValue"
+              class="akd-input akd-input--mono"
+              placeholder="value"
+              [(ngModel)]="envValue"
+              [disabled]="busy()"
+            />
+            <label class="akd-check">
+              <input type="checkbox" name="envSecret" [(ngModel)]="envSecret" [disabled]="busy()" />
+              Secret
+            </label>
+            <button
+              class="akd-btn akd-btn--secondary"
+              type="submit"
+              [disabled]="busy() || !envKey.trim()"
+            >
+              Add
+            </button>
+          </form>
         </akd-card>
 
         <akd-card title="Settings">
@@ -316,6 +410,25 @@ type EngineFlag = components['schemas']['EngineFlag'];
         white-space: pre-wrap;
         word-break: break-all;
       }
+      .jobbanner {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        padding: var(--space-2) var(--space-3);
+        margin-bottom: var(--space-4);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-2, 6px);
+      }
+      .logs {
+        max-height: 24rem;
+        overflow: auto;
+      }
+      .envval {
+        max-width: 24rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       akd-card {
         display: block;
         margin-bottom: var(--space-5);
@@ -348,8 +461,155 @@ export class ModelDetailComponent {
   protected image = '';
   protected shmSizeMb: number | null = null;
 
+  // Runtime console + variables + the active-job poll (this tranche's UX).
+  protected readonly logs = signal<LogLine[] | null>(null);
+  protected readonly logsError = signal<string | null>(null);
+  protected readonly follow = signal(false);
+  protected readonly envs = signal<EnvVar[]>([]);
+  protected envKey = '';
+  protected envValue = '';
+  protected envSecret = false;
+
+  private followTimer: ReturnType<typeof setInterval> | null = null;
+  private jobTimer: ReturnType<typeof setInterval> | null = null;
+
+  protected readonly actions = computed<ActionItem[]>(() => [
+    { id: 'start', label: 'Start', icon: 'play', hint: 'Recreate the container from the current configuration and load the weights' },
+    { id: 'stop', label: 'Stop', icon: 'square', hint: 'Free the GPU memory — the endpoint pauses, the weights stay cached' },
+    { id: 'restart', label: 'Restart', icon: 'rotate-cw', hint: 'Stop then start, same configuration' },
+    { id: 'delete', label: 'Delete', icon: 'trash-2', danger: true, hint: 'Remove the model — the shared weights cache is kept' },
+  ]);
+
   constructor() {
     void this.load();
+    void this.loadEnvs();
+    const destroyRef = inject(DestroyRef);
+    destroyRef.onDestroy(() => {
+      if (this.followTimer) clearInterval(this.followTimer);
+      if (this.jobTimer) clearInterval(this.jobTimer);
+    });
+    // While a lifecycle job is queued or running, the page keeps itself
+    // honest: poll the model until the job reaches a terminal state.
+    effect(() => {
+      const active = !!this.model()?.active_job;
+      untracked(() => {
+        if (active && this.jobTimer === null) {
+          this.jobTimer = setInterval(() => void this.refreshStatus(), 4000);
+        } else if (!active && this.jobTimer !== null) {
+          clearInterval(this.jobTimer);
+          this.jobTimer = null;
+        }
+      });
+    });
+  }
+
+  protected runAction(action: string): void {
+    switch (action) {
+      case 'start':
+        void this.start();
+        break;
+      case 'stop':
+        void this.stop();
+        break;
+      case 'restart':
+        void this.restart();
+        break;
+      case 'delete':
+        void this.remove();
+        break;
+    }
+  }
+
+  /** Status-only refresh: never resyncs the settings form under an edit. */
+  private async refreshStatus(): Promise<void> {
+    try {
+      this.model.set(await this.api.client().getModel(this.uuid));
+    } catch {
+      /* transient — the next tick retries */
+    }
+  }
+
+  protected async cancelActiveJob(jobUuid: string): Promise<void> {
+    this.busy.set(true);
+    try {
+      await this.api.client().cancelJob(jobUuid);
+      this.notice.set('Job cancelled.');
+      await this.refreshStatus();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async loadLogs(): Promise<void> {
+    this.logsError.set(null);
+    try {
+      const res = await this.api.client().getModelLogs(this.uuid, { lines: 400 });
+      this.logs.set(res.data);
+    } catch (err) {
+      this.logsError.set(ApiService.describe(err));
+      this.setFollow(false);
+    }
+  }
+
+  protected setFollow(on: boolean): void {
+    this.follow.set(on);
+    if (on && this.followTimer === null) {
+      void this.loadLogs();
+      this.followTimer = setInterval(() => void this.loadLogs(), 3000);
+    } else if (!on && this.followTimer !== null) {
+      clearInterval(this.followTimer);
+      this.followTimer = null;
+    }
+  }
+
+  private async loadEnvs(): Promise<void> {
+    try {
+      const res = await this.api.client().listModelEnvs(this.uuid, { limit: 100 });
+      this.envs.set(res.data);
+    } catch {
+      /* the card simply shows no variables */
+    }
+  }
+
+  protected async addEnv(): Promise<void> {
+    if (!this.envKey.trim()) return;
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().createModelEnv(this.uuid, {
+        key: this.envKey.trim(),
+        value: this.envValue,
+        is_secret: this.envSecret,
+        is_build_time: false,
+        is_literal: false,
+        is_multiline: false,
+        is_locked: false,
+      });
+      this.envKey = '';
+      this.envValue = '';
+      this.envSecret = false;
+      this.notice.set('Variable added — it reaches the engine at the next start.');
+      await this.loadEnvs();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async deleteEnv(envUuid: string): Promise<void> {
+    if (!envUuid) return;
+    this.busy.set(true);
+    try {
+      await this.api.client().deleteModelEnv(this.uuid, envUuid);
+      await this.loadEnvs();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   private async load(): Promise<void> {
@@ -418,7 +678,13 @@ export class ModelDetailComponent {
     try {
       await this.api.client().startModel(this.uuid);
       this.notice.set('Start accepted — weights load in the background (minutes on first run).');
+      await this.refreshStatus();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && err.code === 'operation_in_progress') {
+        this.error.set(err.message);
+        await this.refreshStatus();
+        return;
+      }
       if (err instanceof ApiError && err.status === 409 && err.code === 'gpu_busy') {
         this.busy.set(false);
         const swap = await this.confirm.ask({
@@ -455,7 +721,13 @@ export class ModelDetailComponent {
     try {
       await action();
       this.notice.set(message);
+      await this.refreshStatus();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 409 && err.code === 'operation_in_progress') {
+        this.error.set(err.message);
+        await this.refreshStatus();
+        return;
+      }
       this.error.set(ApiService.describe(err));
     } finally {
       this.busy.set(false);

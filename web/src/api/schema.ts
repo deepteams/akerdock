@@ -3339,6 +3339,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/models/{model_uuid}/envs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List the model's environment variables
+         * @description The same variable machinery every resource uses (ADR-080 §1) — secrets enveloped, values redacted without read:sensitive. They reach the engine container's environment at the next start.
+         */
+        get: operations["listModelEnvs"];
+        put?: never;
+        /** Add an environment variable to the model */
+        post: operations["createModelEnv"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/{model_uuid}/envs/{env_uuid}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+                /** @description UUID of the environment variable. */
+                env_uuid: components["parameters"]["EnvUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete an environment variable of the model */
+        delete: operations["deleteModelEnv"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/models/{model_uuid}/logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The model container's runtime logs
+         * @description The last lines of the engine container, read through the agent channel and never stored — where the weight download and the engine startup actually narrate themselves. Poll it while a start job runs.
+         */
+        get: operations["getModelLogs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/models/{model_uuid}/start": {
         parameters: {
             query?: never;
@@ -3740,6 +3809,29 @@ export interface paths {
         get: operations["getJob"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/jobs/{job_uuid}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the job. */
+                job_uuid: components["parameters"]["JobUuid"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel a job that has not started
+         * @description Cancels a `scheduled`, `queued` or `retry_wait` job — the enqueue you regret. A job already leased or running is not interrupted (409): model and database jobs have no cooperative checkpoint, and killing them mid-mutation would leave the server in a state nobody asked for.
+         */
+        post: operations["cancelJob"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5392,6 +5484,12 @@ export interface components {
             server_uuid: string;
             server_name?: string;
             server_gpu_name?: string | null;
+            /** @description The queued or running lifecycle job of this model, when one exists — the platform refuses to queue a second one (409), and a queued job can be cancelled (POST /jobs/{uuid}/cancel). */
+            active_job?: {
+                uuid: string;
+                status: string;
+                job_type: string;
+            } | null;
             /** @description Desired status (running/stopped). */
             status: string;
             observed_status?: components["schemas"]["ObservedStatus"];
@@ -13778,6 +13876,132 @@ export interface operations {
             429: components["responses"]["TooManyRequests"];
         };
     };
+    listModelEnvs: {
+        parameters: {
+            query?: {
+                /** @description Opaque pagination cursor, from `next_cursor` of the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Maximum number of items per page (1 to 100). */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of variables. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["EnvironmentVariable"][];
+                        next_cursor?: components["schemas"]["NextCursor"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    createModelEnv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnvironmentVariableCreate"];
+            };
+        };
+        responses: {
+            /** @description Variable created — applied at the next start. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnvironmentVariable"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["UnprocessableEntity"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    deleteModelEnv: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+                /** @description UUID of the environment variable. */
+                env_uuid: components["parameters"]["EnvUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deleted — applied at the next start. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    getModelLogs: {
+        parameters: {
+            query?: {
+                lines?: number;
+            };
+            header?: never;
+            path: {
+                /** @description UUID of the model. */
+                model_uuid: components["parameters"]["ModelUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Log lines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["LogLine"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
     startModel: {
         parameters: {
             query?: never;
@@ -14595,6 +14819,34 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            429: components["responses"]["TooManyRequests"];
+        };
+    };
+    cancelJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description UUID of the job. */
+                job_uuid: components["parameters"]["JobUuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["TooManyRequests"];
         };
     };

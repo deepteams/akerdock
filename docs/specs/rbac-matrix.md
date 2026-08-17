@@ -676,6 +676,10 @@ diff (§23.4).
 | deleteModel | write | `models:delete` |
 | startModel / stopModel / restartModel | deploy | `models:lifecycle` |
 | getModelCredentials | read:sensitive | `models:credentials` |
+| listModelEnvs | read | `secrets:read` |
+| createModelEnv / deleteModelEnv | write | `secrets:write` |
+| getModelLogs | read | `logs:read` |
+| cancelJob | write | `jobs:manage` |
 | setServerHFToken | write | `servers:manage` |
 | listServerHFCache | read | `servers:read` |
 | deleteServerHFCache | write | `servers:maintain` |
