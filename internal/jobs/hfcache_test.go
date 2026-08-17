@@ -12,7 +12,9 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime/fake"
@@ -68,6 +70,9 @@ func oneShotRuntime(output string) (*fake.Runtime, *container.Config, func() *co
 		return io.NopCloser(strings.NewReader(output)), nil
 	}
 	rt.ContainerRemoveFn = func(context.Context, string, container.RemoveOptions) error { return nil }
+	rt.ImageInspectFn = func(context.Context, string, ...client.ImageInspectOption) (image.InspectResponse, error) {
+		return image.InspectResponse{}, nil // busybox already present
+	}
 	return rt, captured, func() *container.Config { return captured }
 }
 
@@ -122,6 +127,26 @@ func TestHFCacheDeleteIsPureArgv(t *testing.T) {
 	}
 	if calls := rt2.CallNames(); len(calls) != 0 {
 		t.Fatalf("the runtime was touched: %v", calls)
+	}
+}
+
+// A virgin server has never pulled the tool image: ContainerCreate does not
+// pull, so the ensure must — once, inspect-first afterwards.
+func TestHFCacheToolIsPulledOnAVirginServer(t *testing.T) {
+	rt, _, _ := oneShotRuntime("")
+	rt.ImageInspectFn = func(context.Context, string, ...client.ImageInspectOption) (image.InspectResponse, error) {
+		return image.InspectResponse{}, context.Canceled // absent
+	}
+	pulled := ""
+	rt.ImagePullFn = func(_ context.Context, ref string, _ image.PullOptions) (io.ReadCloser, error) {
+		pulled = ref
+		return io.NopCloser(strings.NewReader("")), nil
+	}
+	if err := HFCachePurge(context.Background(), rt); err != nil {
+		t.Fatal(err)
+	}
+	if pulled != hfCacheToolImage {
+		t.Fatalf("pulled = %q, want the pinned tool image", pulled)
 	}
 }
 

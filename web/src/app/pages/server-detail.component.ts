@@ -823,8 +823,15 @@ const TABS: readonly { id: TabId; label: string }[] = [
                 </p>
                 @if (hfCacheError(); as message) {
                   <p class="akd-error" role="alert">{{ message }}</p>
-                }
-                @if (hfCache(); as cache) {
+                  <button
+                    class="akd-btn akd-btn--secondary"
+                    type="button"
+                    (click)="loadHFCache()"
+                    [disabled]="busy()"
+                  >
+                    Retry
+                  </button>
+                } @else if (hfCache(); as cache) {
                   @if (cache.data.length === 0) {
                     <p class="akd-muted">The cache is empty.</p>
                   } @else {

@@ -10,12 +10,14 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"io"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
@@ -69,9 +71,29 @@ func hfCacheHost() *container.HostConfig {
 	return &container.HostConfig{Binds: []string{HFCacheVolume + ":" + hfCacheMount}}
 }
 
+// ensureCacheTool pulls the one-shot image when the server has never seen it
+// — ContainerCreate does not pull, and a virgin GPU server has had no reason
+// to hold busybox yet. Inspect-first keeps the steady state to one local
+// call; the pull reader is drained so the operation completes.
+func ensureCacheTool(ctx context.Context, rt dockerruntime.Runtime) error {
+	if _, err := rt.ImageInspect(ctx, hfCacheToolImage); err == nil {
+		return nil
+	}
+	rc, err := rt.ImagePull(ctx, hfCacheToolImage, image.PullOptions{})
+	if err != nil {
+		return fmt.Errorf("cannot pull %s on the server: %s", hfCacheToolImage, firstLine(err.Error()))
+	}
+	_, _ = io.Copy(io.Discard, rc)
+	_ = rc.Close()
+	return nil
+}
+
 // HFCacheList reads the cache contents through a one-shot: one `du -sk` per
 // hub entry, parsed back into models and MiB, largest first.
 func HFCacheList(ctx context.Context, rt dockerruntime.Runtime) ([]HFCacheEntry, error) {
+	if err := ensureCacheTool(ctx, rt); err != nil {
+		return nil, err
+	}
 	out, err := runOneShotCapture(ctx, rt, &container.Config{
 		Image:      hfCacheToolImage,
 		Entrypoint: []string{"sh", "-c"},
@@ -112,6 +134,9 @@ func HFCacheDelete(ctx context.Context, rt dockerruntime.Runtime, modelID string
 	if err != nil {
 		return err
 	}
+	if err := ensureCacheTool(ctx, rt); err != nil {
+		return err
+	}
 	return runOneShot(ctx, rt, &container.Config{
 		Image:      hfCacheToolImage,
 		Entrypoint: []string{"rm", "-rf"},
@@ -123,6 +148,9 @@ func HFCacheDelete(ctx context.Context, rt dockerruntime.Runtime, modelID string
 // HFCachePurge empties the whole cache — every top-level entry of the
 // volume, dotfiles included, so the reclaim is total.
 func HFCachePurge(ctx context.Context, rt dockerruntime.Runtime) error {
+	if err := ensureCacheTool(ctx, rt); err != nil {
+		return err
+	}
 	return runOneShot(ctx, rt, &container.Config{
 		Image:      hfCacheToolImage,
 		Entrypoint: []string{"find", hfCacheMount, "-mindepth", "1", "-maxdepth", "1", "-exec", "rm", "-rf", "{}", "+"},

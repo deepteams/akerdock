@@ -7,6 +7,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
@@ -75,7 +76,11 @@ func (a *API) ListServerHFCache(w http.ResponseWriter, r *http.Request, serverUu
 	}
 	entries, err := jobs.HFCacheList(r.Context(), rt)
 	if err != nil {
-		a.internalError(w, r, "list hf cache", err)
+		// An operational failure ON the server (image pull, one-shot exit),
+		// not a bug here: name it, the operator can act on it.
+		a.Logger.Warn("hf cache listing failed", "server_id", server.ID, "error", err)
+		httpapi.WriteError(w, r, http.StatusBadGateway, httpapi.CodeInternal,
+			"reading the cache on the server failed: "+firstLineOf(err))
 		return
 	}
 	type entry struct {
@@ -122,7 +127,9 @@ func (a *API) DeleteServerHFCache(w http.ResponseWriter, r *http.Request, server
 	}
 	if all {
 		if err := jobs.HFCachePurge(r.Context(), rt); err != nil {
-			a.internalError(w, r, "purge hf cache", err)
+			a.Logger.Warn("hf cache purge failed", "server_id", server.ID, "error", err)
+			httpapi.WriteError(w, r, http.StatusBadGateway, httpapi.CodeInternal,
+				"emptying the cache on the server failed: "+firstLineOf(err))
 			return
 		}
 		a.recordAudit(r, id, "server.hf_cache.purge", "server", server.Uuid)
@@ -136,4 +143,10 @@ func (a *API) DeleteServerHFCache(w http.ResponseWriter, r *http.Request, server
 		a.recordAudit(r, id, "server.hf_cache.delete", "server", server.Uuid)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// firstLineOf keeps an operational error presentable in an API message.
+func firstLineOf(err error) string {
+	line, _, _ := strings.Cut(err.Error(), "\n")
+	return line
 }
