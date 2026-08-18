@@ -73,7 +73,7 @@ func (a *API) SwitchTeam(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TeamUUID string `json:"team_uuid"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.TeamUUID) == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil || strings.TrimSpace(body.TeamUUID) == "" {
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "a team_uuid is required")
 		return
 	}
