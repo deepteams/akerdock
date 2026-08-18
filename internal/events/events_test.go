@@ -37,6 +37,16 @@ const (
 	teamB = "22222222-2222-4222-8222-222222222222"
 )
 
+// mustSubscribe subscribes below the cap, where refusal is a test bug.
+func mustSubscribe(t *testing.T, b *Broker, teamUUID string) (<-chan Event, func()) {
+	t.Helper()
+	ch, cancel, err := b.Subscribe(teamUUID)
+	if err != nil {
+		t.Fatalf("Subscribe(%s): %v", teamUUID, err)
+	}
+	return ch, cancel
+}
+
 // recv reads one event with a timeout so a broken fan-out fails fast
 // instead of hanging the test binary.
 func recv(t *testing.T, ch <-chan Event) Event {
@@ -55,9 +65,9 @@ func recv(t *testing.T, ch <-chan Event) Event {
 
 func TestBrokerFanOut(t *testing.T) {
 	b := NewBroker()
-	ch1, cancel1 := b.Subscribe(teamA)
+	ch1, cancel1 := mustSubscribe(t, b, teamA)
 	defer cancel1()
-	ch2, cancel2 := b.Subscribe(teamA)
+	ch2, cancel2 := mustSubscribe(t, b, teamA)
 	defer cancel2()
 
 	want := Event{Sequence: 7, EventType: "application.deployed"}
@@ -73,9 +83,9 @@ func TestBrokerFanOut(t *testing.T) {
 
 func TestBrokerTeamIsolation(t *testing.T) {
 	b := NewBroker()
-	chA, cancelA := b.Subscribe(teamA)
+	chA, cancelA := mustSubscribe(t, b, teamA)
 	defer cancelA()
-	chB, cancelB := b.Subscribe(teamB)
+	chB, cancelB := mustSubscribe(t, b, teamB)
 	defer cancelB()
 
 	b.publish(teamA, Event{Sequence: 1, EventType: "server.created"})
@@ -91,7 +101,7 @@ func TestBrokerTeamIsolation(t *testing.T) {
 
 func TestBrokerSlowSubscriberDoesNotBlockPublish(t *testing.T) {
 	b := NewBroker()
-	ch, cancel := b.Subscribe(teamA)
+	ch, cancel := mustSubscribe(t, b, teamA)
 	defer cancel()
 
 	// Nobody reads: fill the buffer (cap 32) and keep publishing. Extra
@@ -120,7 +130,7 @@ func TestBrokerSlowSubscriberDoesNotBlockPublish(t *testing.T) {
 
 func TestBrokerCancelClosesChannelAndCleansMap(t *testing.T) {
 	b := NewBroker()
-	ch, cancel := b.Subscribe(teamA)
+	ch, cancel := mustSubscribe(t, b, teamA)
 	cancel()
 
 	if _, ok := <-ch; ok {
@@ -136,6 +146,32 @@ func TestBrokerCancelClosesChannelAndCleansMap(t *testing.T) {
 
 	// Publishing after cancel must not panic (send on closed channel).
 	b.publish(teamA, Event{Sequence: 1})
+}
+
+func TestBrokerTeamStreamCap(t *testing.T) {
+	b := NewBroker()
+	cancels := make([]func(), 0, subscriberTeamCap)
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+	}()
+	for range subscriberTeamCap {
+		_, cancel := mustSubscribe(t, b, teamA)
+		cancels = append(cancels, cancel)
+	}
+
+	// Stream cap+1 is refused; another team is unaffected; freeing one slot
+	// re-admits — the cap counts live streams, not a lifetime total.
+	if _, _, err := b.Subscribe(teamA); !errors.Is(err, ErrTeamStreamLimit) {
+		t.Fatalf("Subscribe over cap: err = %v, want ErrTeamStreamLimit", err)
+	}
+	_, cancelB := mustSubscribe(t, b, teamB)
+	cancelB()
+	cancels[0]()
+	cancels = cancels[1:]
+	_, cancel := mustSubscribe(t, b, teamA)
+	cancels = append(cancels, cancel)
 }
 
 func TestToEvent(t *testing.T) {
@@ -201,7 +237,7 @@ func TestToEvent(t *testing.T) {
 
 func TestPublisherDrain(t *testing.T) {
 	broker := NewBroker()
-	ch, cancel := broker.Subscribe(teamA)
+	ch, cancel := mustSubscribe(t, broker, teamA)
 	defer cancel()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	rows := []store.OutboxEvent{{

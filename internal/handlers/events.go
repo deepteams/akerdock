@@ -31,7 +31,13 @@ func (a *API) StreamEvents(w http.ResponseWriter, r *http.Request, params api.St
 	}
 
 	// Subscribe before replaying, so no event slips between the two.
-	stream, cancel := a.Events.Subscribe(id.TeamUUID)
+	stream, cancel, err := a.Events.Subscribe(id.TeamUUID)
+	if err != nil {
+		// Same shape as the terminal cap (threat model §3.2 D): a hard 409, so
+		// an EventSource stops rather than piling retries onto a full team.
+		httpapi.WriteError(w, r, http.StatusConflict, "event_stream_limit", err.Error())
+		return
+	}
 	defer cancel()
 
 	w.Header().Set("Content-Type", "text/event-stream")
