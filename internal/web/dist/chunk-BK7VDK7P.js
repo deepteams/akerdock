@@ -1,0 +1,1 @@
+import{c as s}from"./chunk-JQ6DLK3T.js";function c(a,o=50){return s(this,null,function*(){let e=[],t;for(let n=0;n<o;n++){let r=yield a(t);if(e.push(...r.data),!r.next_cursor)break;t=r.next_cursor}return e})}export{c as a};
