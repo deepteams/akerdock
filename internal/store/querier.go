@@ -37,10 +37,11 @@ type Querier interface {
 	CanStartServerCleanup(ctx context.Context, serverID int64) (bool, error)
 	CancelJobsForDeployments(ctx context.Context, deploymentIds []int64) error
 	CancelQueuedDeployment(ctx context.Context, id int64) (int64, error)
-	// The enqueue you regret: only a job that has NOT started can be cancelled —
-	// a leased/running job has no cooperative checkpoint in the model and
-	// database families, and killing it mid-mutation would leave the server in
-	// a state nobody asked for. Zero rows = not cancellable, the caller says why.
+	// The enqueue you regret: a job that has NOT started stops here and now.
+	// One that already runs takes the cooperative path below when its family
+	// has a checkpoint — killing it mid-mutation would leave the server in a
+	// state nobody asked for. Zero rows = not cancellable this way, the caller
+	// tries the cooperative request before answering 409.
 	CancelQueuedJob(ctx context.Context, id int64) (int64, error)
 	// HTTP idempotency (§24.1).
 	// Inserts the key, or returns the existing row when the key was already
@@ -1113,6 +1114,13 @@ type Querier interface {
 	// Cooperative cancellation (§2.6): the worker checks the flag at each
 	// checkpoint between steps, before the switching barrier (§21.1).
 	RequestDeploymentJobCancel(ctx context.Context, deploymentID int64) (int64, error)
+	// Cooperative cancellation of a job already in flight, by id. Only the
+	// families that actually poll the flag are eligible — a job type absent
+	// from this list would take the flag and ignore it, which reads to the
+	// operator as a cancel that did nothing. Setting it twice is not an error,
+	// but zero rows must mean "not cancellable", so an already-flagged job
+	// still counts as a row.
+	RequestJobCancel(ctx context.Context, id int64) (int64, error)
 	// The display name of what an action touched, read at the moment it is audited
 	// so the trail keeps the name the resource had THEN (see 00084).
 	//

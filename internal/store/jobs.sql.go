@@ -16,10 +16,11 @@ UPDATE jobs SET status = 'cancelled', finished_at = now(), updated_at = now()
 WHERE id = $1 AND status IN ('scheduled', 'queued', 'retry_wait')
 `
 
-// The enqueue you regret: only a job that has NOT started can be cancelled —
-// a leased/running job has no cooperative checkpoint in the model and
-// database families, and killing it mid-mutation would leave the server in
-// a state nobody asked for. Zero rows = not cancellable, the caller says why.
+// The enqueue you regret: a job that has NOT started stops here and now.
+// One that already runs takes the cooperative path below when its family
+// has a checkpoint — killing it mid-mutation would leave the server in a
+// state nobody asked for. Zero rows = not cancellable this way, the caller
+// tries the cooperative request before answering 409.
 func (q *Queries) CancelQueuedJob(ctx context.Context, id int64) (int64, error) {
 	result, err := q.db.Exec(ctx, cancelQueuedJob, id)
 	if err != nil {
@@ -233,15 +234,16 @@ func (q *Queries) ForgetDeadLetterJob(ctx context.Context, id int64) (int64, err
 }
 
 const getActiveJobByLockKey = `-- name: GetActiveJobByLockKey :one
-SELECT uuid, status, job_type FROM jobs
+SELECT uuid, status, job_type, cancel_requested_at FROM jobs
 WHERE lock_key = $1 AND status IN ('scheduled', 'queued', 'leased', 'running', 'retry_wait')
 ORDER BY id DESC LIMIT 1
 `
 
 type GetActiveJobByLockKeyRow struct {
-	Uuid    pgtype.UUID
-	Status  JobStatus
-	JobType string
+	Uuid              pgtype.UUID
+	Status            JobStatus
+	JobType           string
+	CancelRequestedAt pgtype.Timestamptz
 }
 
 // The queued-or-running job of one lock key (ADR-080 UX): what the model
@@ -249,7 +251,12 @@ type GetActiveJobByLockKeyRow struct {
 func (q *Queries) GetActiveJobByLockKey(ctx context.Context, lockKey *string) (GetActiveJobByLockKeyRow, error) {
 	row := q.db.QueryRow(ctx, getActiveJobByLockKey, lockKey)
 	var i GetActiveJobByLockKeyRow
-	err := row.Scan(&i.Uuid, &i.Status, &i.JobType)
+	err := row.Scan(
+		&i.Uuid,
+		&i.Status,
+		&i.JobType,
+		&i.CancelRequestedAt,
+	)
 	return i, err
 }
 
@@ -562,6 +569,27 @@ WHERE job_type = 'deployment.run'
 // checkpoint between steps, before the switching barrier (§21.1).
 func (q *Queries) RequestDeploymentJobCancel(ctx context.Context, deploymentID int64) (int64, error) {
 	result, err := q.db.Exec(ctx, requestDeploymentJobCancel, deploymentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const requestJobCancel = `-- name: RequestJobCancel :execrows
+UPDATE jobs SET cancel_requested_at = coalesce(cancel_requested_at, now()), updated_at = now()
+WHERE id = $1
+  AND status IN ('leased', 'running')
+  AND job_type IN ('deployment.run', 'model.provision', 'model.start', 'model.stop', 'model.restart', 'model.delete')
+`
+
+// Cooperative cancellation of a job already in flight, by id. Only the
+// families that actually poll the flag are eligible — a job type absent
+// from this list would take the flag and ignore it, which reads to the
+// operator as a cancel that did nothing. Setting it twice is not an error,
+// but zero rows must mean "not cancellable", so an already-flagged job
+// still counts as a row.
+func (q *Queries) RequestJobCancel(ctx context.Context, id int64) (int64, error) {
+	result, err := q.db.Exec(ctx, requestJobCancel, id)
 	if err != nil {
 		return 0, err
 	}

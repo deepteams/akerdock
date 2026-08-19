@@ -75,13 +75,17 @@ function splitDomains(raw: string): string[] {
         @if (mo.active_job; as job) {
           <div class="jobbanner" role="status">
             <span>
-              <span class="akd-mono">{{ job.job_type }}</span> is {{ job.status }} —
+              <span class="akd-mono">{{ job.job_type }}</span>
+              @if (job.cancel_requested_at) {
+                is stopping — it ends at its next checkpoint
+              } @else {
+                is {{ job.status }}
+              }
+              —
               <a [routerLink]="['/jobs', job.uuid]">follow the job</a>
             </span>
             <span class="grow"></span>
-            @if (
-              job.status === 'queued' || job.status === 'scheduled' || job.status === 'retry_wait'
-            ) {
+            @if (!job.cancel_requested_at) {
               <button
                 class="akd-btn akd-btn--secondary akd-btn--sm"
                 type="button"
@@ -682,8 +686,15 @@ export class ModelDetailComponent {
   protected async cancelActiveJob(jobUuid: string): Promise<void> {
     this.busy.set(true);
     try {
-      await this.api.client().cancelJob(jobUuid);
-      this.notice.set('Job cancelled.');
+      // A job that had not started is already gone; one in flight has only
+      // been asked, and saying "cancelled" there would promise a GPU that is
+      // not free yet.
+      const job = await this.api.client().cancelJob(jobUuid);
+      this.notice.set(
+        job.cancel_requested_at
+          ? 'Cancellation requested — the job stops at its next checkpoint.'
+          : 'Job cancelled.',
+      );
       await this.refreshStatus();
     } catch (err) {
       this.error.set(ApiService.describe(err));

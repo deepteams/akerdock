@@ -114,17 +114,30 @@ WHERE lock_key = $1 AND status IN ('scheduled', 'queued', 'leased', 'running', '
 -- name: GetActiveJobByLockKey :one
 -- The queued-or-running job of one lock key (ADR-080 UX): what the model
 -- page shows, what the double-enqueue guard names in its 409.
-SELECT uuid, status, job_type FROM jobs
+SELECT uuid, status, job_type, cancel_requested_at FROM jobs
 WHERE lock_key = $1 AND status IN ('scheduled', 'queued', 'leased', 'running', 'retry_wait')
 ORDER BY id DESC LIMIT 1;
 
 -- name: CancelQueuedJob :execrows
--- The enqueue you regret: only a job that has NOT started can be cancelled —
--- a leased/running job has no cooperative checkpoint in the model and
--- database families, and killing it mid-mutation would leave the server in
--- a state nobody asked for. Zero rows = not cancellable, the caller says why.
+-- The enqueue you regret: a job that has NOT started stops here and now.
+-- One that already runs takes the cooperative path below when its family
+-- has a checkpoint — killing it mid-mutation would leave the server in a
+-- state nobody asked for. Zero rows = not cancellable this way, the caller
+-- tries the cooperative request before answering 409.
 UPDATE jobs SET status = 'cancelled', finished_at = now(), updated_at = now()
 WHERE id = $1 AND status IN ('scheduled', 'queued', 'retry_wait');
+
+-- name: RequestJobCancel :execrows
+-- Cooperative cancellation of a job already in flight, by id. Only the
+-- families that actually poll the flag are eligible — a job type absent
+-- from this list would take the flag and ignore it, which reads to the
+-- operator as a cancel that did nothing. Setting it twice is not an error,
+-- but zero rows must mean "not cancellable", so an already-flagged job
+-- still counts as a row.
+UPDATE jobs SET cancel_requested_at = coalesce(cancel_requested_at, now()), updated_at = now()
+WHERE id = $1
+  AND status IN ('leased', 'running')
+  AND job_type IN ('deployment.run', 'model.provision', 'model.start', 'model.stop', 'model.restart', 'model.delete');
 
 -- Cooperative cancellation (§2.6): the worker checks the flag at each
 -- checkpoint between steps, before the switching barrier (§21.1).

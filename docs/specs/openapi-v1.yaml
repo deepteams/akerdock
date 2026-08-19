@@ -8502,16 +8502,25 @@ paths:
     post:
       tags: [Jobs]
       operationId: cancelJob
-      summary: Cancel a job that has not started
+      summary: Cancel a job
       description: >-
-        Cancels a `scheduled`, `queued` or `retry_wait` job — the enqueue you
-        regret. A job already leased or running is not interrupted (409):
-        model and database jobs have no cooperative checkpoint, and killing
-        them mid-mutation would leave the server in a state nobody asked for.
+        Cancels a `scheduled`, `queued` or `retry_wait` job outright — the
+        enqueue you regret (200). A job already leased or running is asked to
+        stop instead (202): the deployment and model families poll the request
+        at their checkpoints and compensate on the way out, so the cancel is
+        acknowledged here and observed on the job itself. A family without a
+        checkpoint is refused (409) rather than left half-mutated.
       x-required-permission: jobs:manage
       responses:
         "200":
           description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "202":
+          description: >-
+            Cancellation requested — the job stops at its next checkpoint.
           content:
             application/json:
               schema:
@@ -12502,8 +12511,9 @@ components:
           nullable: true
           description: >-
             The queued or running lifecycle job of this model, when one
-            exists — the platform refuses to queue a second one (409), and a
-            queued job can be cancelled (POST /jobs/{uuid}/cancel).
+            exists — the platform refuses to queue a second one (409). It can
+            be cancelled at any point (POST /jobs/{uuid}/cancel): queued, it
+            stops outright; running, it stops at its next checkpoint.
           type: object
           required: [uuid, status, job_type]
           properties:
@@ -12513,6 +12523,13 @@ components:
               type: string
             job_type:
               type: string
+            cancel_requested_at:
+              type: string
+              nullable: true
+              format: date-time
+              description: >-
+                Set once a cancellation has been asked for — the job is
+                stopping, and asking again changes nothing.
         status:
           type: string
           description: Desired status (running/stopped).
@@ -15773,6 +15790,15 @@ components:
           type: integer
           default: 1
           description: Attempt number (retries §21.3).
+          readOnly: true
+        cancel_requested_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: >-
+            When a cooperative cancellation was asked for. The job keeps its
+            running status until it reaches its next checkpoint — this is what
+            distinguishes "still running" from "stopping".
           readOnly: true
         result:
           type: object

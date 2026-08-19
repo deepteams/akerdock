@@ -4342,8 +4342,11 @@ type InvitationCreateRole string
 // Job Asynchronous operation created by a `202` response (§21.3, §24.1).
 type Job struct {
 	// Attempt Attempt number (retries §21.3).
-	Attempt   *int       `json:"attempt,omitempty"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Attempt *int `json:"attempt,omitempty"`
+
+	// CancelRequestedAt When a cooperative cancellation was asked for. The job keeps its running status until it reaches its next checkpoint — this is what distinguishes "still running" from "stopping".
+	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+	CreatedAt         *time.Time `json:"created_at,omitempty"`
 
 	// DeadLetteredAt Transition to dead-letter, if any (§21.3).
 	DeadLetteredAt *time.Time `json:"dead_lettered_at,omitempty"`
@@ -4498,11 +4501,13 @@ type MemberRoleUpdateRole string
 
 // Model An inference model resource (ADR-080).
 type Model struct {
-	// ActiveJob The queued or running lifecycle job of this model, when one exists — the platform refuses to queue a second one (409), and a queued job can be cancelled (POST /jobs/{uuid}/cancel).
+	// ActiveJob The queued or running lifecycle job of this model, when one exists — the platform refuses to queue a second one (409). It can be cancelled at any point (POST /jobs/{uuid}/cancel): queued, it stops outright; running, it stops at its next checkpoint.
 	ActiveJob *struct {
-		JobType string `json:"job_type"`
-		Status  string `json:"status"`
-		Uuid    string `json:"uuid"`
+		// CancelRequestedAt Set once a cancellation has been asked for — the job is stopping, and asking again changes nothing.
+		CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+		JobType           string     `json:"job_type"`
+		Status            string     `json:"status"`
+		Uuid              string     `json:"uuid"`
 	} `json:"active_job,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
 	Description *string   `json:"description,omitempty"`
@@ -7834,7 +7839,7 @@ type ServerInterface interface {
 	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
-	// Cancel a job that has not started
+	// Cancel a job
 	// (POST /jobs/{job_uuid}/cancel)
 	CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
 	// Forget a dead-letter job
@@ -8926,7 +8931,7 @@ func (_ Unimplemented) GetJob(w http.ResponseWriter, r *http.Request, jobUuid Jo
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Cancel a job that has not started
+// Cancel a job
 // (POST /jobs/{job_uuid}/cancel)
 func (_ Unimplemented) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -32109,6 +32114,20 @@ func (response CancelJob200JSONResponse) VisitCancelJobResponse(w http.ResponseW
 	return err
 }
 
+type CancelJob202JSONResponse Job
+
+func (response CancelJob202JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CancelJob401JSONResponse struct{ UnauthorizedJSONResponse }
 
 func (response CancelJob401JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
@@ -47001,7 +47020,7 @@ type StrictServerInterface interface {
 	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(ctx context.Context, request GetJobRequestObject) (GetJobResponseObject, error)
-	// Cancel a job that has not started
+	// Cancel a job
 	// (POST /jobs/{job_uuid}/cancel)
 	CancelJob(ctx context.Context, request CancelJobRequestObject) (CancelJobResponseObject, error)
 	// Forget a dead-letter job

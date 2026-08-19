@@ -159,10 +159,16 @@ func (a *API) modelToAPI(r *http.Request, row modelRow) api.Model {
 	// simply no banner.
 	if job, err := a.Store.GetActiveJobByLockKey(r.Context(), ptr("deploy:model:"+uuidString(row.Resource.Uuid))); err == nil {
 		m.ActiveJob = &struct {
-			JobType string `json:"job_type"`
-			Status  string `json:"status"`
-			Uuid    string `json:"uuid"`
-		}{JobType: job.JobType, Status: string(job.Status), Uuid: uuidString(job.Uuid)}
+			CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+			JobType           string     `json:"job_type"`
+			Status            string     `json:"status"`
+			Uuid              string     `json:"uuid"`
+		}{
+			CancelRequestedAt: timePtr(job.CancelRequestedAt),
+			JobType:           job.JobType,
+			Status:            string(job.Status),
+			Uuid:              uuidString(job.Uuid),
+		}
 	}
 	return m
 }
@@ -767,13 +773,25 @@ func (a *API) enqueueModelJob(r *http.Request, id *auth.Identity, resourceID int
 	} else if n > 0 {
 		return store.Job{}, errModelBusy
 	}
+	// A start that failed is terminal, like a deployment attempt (§21.1):
+	// weights that do not fit, a flag the engine refuses or a wrong image fail
+	// again identically, and each replay costs the readiness budget while the
+	// lock keeps every other action on this model out. The operator fixes the
+	// configuration and starts again — the retry is a decision, not a reflex.
+	// Stop and delete keep the default: they converge, so replaying them is
+	// how a transient channel error resolves itself.
+	maxAttempts := int32(0)
+	if jobType == jobs.TypeModelStart || jobType == jobs.TypeModelProvision {
+		maxAttempts = 1
+	}
 	return queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
-		Queue:      "deploy",
-		Type:       jobType,
-		Payload:    jobs.ModelPayload{ResourceID: resourceID, Action: action, StopResourceID: stopFirst},
-		LockKey:    &lockKey,
-		TeamID:     ptr(id.TeamID),
-		ResourceID: ptr(resourceID),
+		Queue:       "deploy",
+		Type:        jobType,
+		Payload:     jobs.ModelPayload{ResourceID: resourceID, Action: action, StopResourceID: stopFirst},
+		LockKey:     &lockKey,
+		MaxAttempts: maxAttempts,
+		TeamID:      ptr(id.TeamID),
+		ResourceID:  ptr(resourceID),
 	})
 }
 

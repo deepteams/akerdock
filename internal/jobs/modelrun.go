@@ -9,6 +9,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -60,6 +61,27 @@ const HFCacheVolume = "akerdock-hf-cache"
 // §4). A var so tests do not wait.
 var modelReadyBudget = 15 * time.Minute
 
+// modelMaxRestarts is where "still loading" stops being a defensible reading
+// of a container that keeps dying. The container carries `unless-stopped`, so
+// an engine that exits — bad flag, weights that do not fit the GPU — is
+// relaunched by Docker within a second and the poll below sees `running`
+// again, never the `exited` that used to be the only failure signal. Waiting
+// out the full readiness budget on a model that has already died three times
+// serves nobody: the budget exists for slow loading, not for a loop.
+const modelMaxRestarts = 2
+
+// modelProbeTimeout bounds ONE observation of the container. The commands ride
+// the agent channel, and a channel whose peer vanished without closing its
+// socket answers nothing at all — without a deadline the poll below would
+// block on a single inspect for as long as the kernel retransmits, which is a
+// quarter of an hour of a job that looks alive and cannot be stopped.
+const modelProbeTimeout = 30 * time.Second
+
+// errModelCancelled ends a model job at a cooperative checkpoint (§2.6) — the
+// operator asked, the container is put back to a state they can act on, and
+// the job is a cancellation, not a failure.
+var errModelCancelled = errors.New("cancelled at the operator's request")
+
 // ModelPayload references the model and, for a swap start (ADR-080 §5), the
 // running model the operator confirmed stopping first — one job, so the
 // order is a program, not a race between two queue entries.
@@ -98,6 +120,17 @@ func (h *ModelRun) Execute(ctx context.Context, job store.Job, rec *queue.StepRe
 	}
 	modelUUID := pguuid.String(row.Resource.Uuid)
 
+	// The first checkpoint is before any work at all: a job cancelled while it
+	// waited in the queue can still be picked up — the lease is taken before
+	// the worker reads the flag — and starting an engine the operator has
+	// already called off is the one outcome nobody wants.
+	if h.cancelRequested(ctx, job.ID) {
+		rec.Start(ctx, payload.Action)
+		rec.Fail(ctx, "cancelled at the operator's request")
+		h.Logger.Info("model job cancelled before it started", "action", payload.Action, "model_uuid", modelUUID)
+		return map[string]any{"action": payload.Action, "model_uuid": modelUUID, "status": "cancelled"}, nil
+	}
+
 	rec.Start(ctx, payload.Action)
 	rt, err := h.Docker.Runtime(ctx, row.Model.ServerID)
 	if err != nil {
@@ -123,13 +156,20 @@ func (h *ModelRun) Execute(ctx context.Context, job store.Job, rec *queue.StepRe
 		// configuration — serve flags are read once, at process start
 		// (ADR-080 §5), so "start after an update" and "provision" are the
 		// same act.
-		err = h.provision(ctx, rt, row, modelUUID)
+		err = h.provision(ctx, rt, row, modelUUID, job.ID)
 	case "stop", "restart":
 		err = h.lifecycle(ctx, rt, payload.Action, modelUUID, row.Resource.ID)
 	case "delete":
 		err = h.delete(ctx, rt, row, modelUUID)
 	default:
 		err = fmt.Errorf("unknown model action %q", payload.Action)
+	}
+	// A cancellation is an outcome, not a defect: the job SUCCEEDS at having
+	// stopped, so the queue does not retry what the operator just interrupted.
+	if errors.Is(err, errModelCancelled) {
+		rec.Fail(ctx, "cancelled at the operator's request")
+		h.Logger.Info("model job cancelled", "action", payload.Action, "model_uuid", modelUUID)
+		return map[string]any{"action": payload.Action, "model_uuid": modelUUID, "status": "cancelled"}, nil
 	}
 	if err != nil {
 		rec.Fail(ctx, firstLine(err.Error()))
@@ -197,7 +237,7 @@ func ModelInferenceConfig(m store.Model) (inference.Config, error) {
 // provision recreates and starts the model container: GPU device request,
 // host IPC or explicit shm, ulimits, shared HF cache, published LAN port,
 // the API key on the engine's own flag — and a readiness budget in minutes.
-func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row store.GetModelByIDRow, modelUUID string) error {
+func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row store.GetModelByIDRow, modelUUID string, jobID int64) error {
 	apiKey, err := h.Keyring.Decrypt("models", "api_key_enc", modelUUID, row.Model.ApiKeyEnc)
 	if err != nil {
 		return err
@@ -310,7 +350,23 @@ func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row 
 	if err := rt.ContainerStart(ctx, modelUUID, container.StartOptions{}); err != nil {
 		return fmt.Errorf("starting the model container failed: %s", firstLine(err.Error()))
 	}
-	if err := h.waitModelReady(ctx, rt, modelUUID); err != nil {
+	if err := h.waitModelReady(ctx, rt, modelUUID, jobID); err != nil {
+		// The container carries `unless-stopped`, which Docker honours against
+		// everything EXCEPT an explicit stop — so a start that failed must
+		// stop what it created, or the engine keeps crash-looping on the GPU
+		// long after the job is over, holding memory nobody can account for.
+		// Stopped, not removed: the logs are the operator's evidence.
+		h.stopAfterFailedStart(ctx, rt, modelUUID)
+		observed := store.ResourceObservedStatusUnhealthy
+		if errors.Is(err, errModelCancelled) {
+			observed = store.ResourceObservedStatusExited
+		}
+		_ = h.Store.SetResourceDesiredStatus(ctx, store.SetResourceDesiredStatusParams{
+			ID: row.Resource.ID, DesiredStatus: store.ResourceDesiredStatusStopped,
+		})
+		_ = h.Store.SetResourceObservedStatus(ctx, store.SetResourceObservedStatusParams{
+			ID: row.Resource.ID, ObservedStatus: observed,
+		})
 		return err
 	}
 
@@ -321,6 +377,21 @@ func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row 
 		ID: row.Resource.ID, ObservedStatus: store.ResourceObservedStatusHealthy,
 	})
 	return nil
+}
+
+// stopAfterFailedStart silences the restart policy on the way out. Best
+// effort and bounded: the reason the start failed may well be the reason this
+// cannot be delivered either, and a job that hangs on its own cleanup is the
+// defect it is trying to compensate. context.WithoutCancel because a
+// cancelled job must still clean up after itself.
+func (h *ModelRun) stopAfterFailedStart(ctx context.Context, rt dockerruntime.Runtime, modelUUID string) {
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelProbeTimeout)
+	defer cancel()
+	grace := 10
+	if err := rt.ContainerStop(stopCtx, modelUUID, container.StopOptions{Timeout: &grace}); err != nil && !dockerruntime.IsNotFound(err) {
+		h.Logger.Warn("could not stop the model container after a failed start",
+			"model_uuid", modelUUID, "error", err)
+	}
 }
 
 func modelContainerPort() nat.Port {
@@ -368,12 +439,18 @@ func (h *ModelRun) renderModelEnv(ctx context.Context, resourceID int64) ([]stri
 }
 
 // waitModelReady waits on the container's health with a minutes-scale budget
-// (weight loading IS the workload's cost) — and fails fast on a container
-// that exited, with its last lines attached.
-func (h *ModelRun) waitModelReady(ctx context.Context, rt dockerruntime.Runtime, modelUUID string) error {
+// (weight loading IS the workload's cost) — and gives up early on the three
+// things that are not slow loading: a container that exited, one that keeps
+// being restarted by its own restart policy, and an operator who asked to
+// stop. The five-second poll is the job family's only checkpoint, so it
+// carries the cancellation check too (§2.6).
+func (h *ModelRun) waitModelReady(ctx context.Context, rt dockerruntime.Runtime, modelUUID string, jobID int64) error {
 	deadline := time.Now().Add(modelReadyBudget)
 	for {
-		inspect, err := rt.ContainerInspect(ctx, modelUUID)
+		if h.cancelRequested(ctx, jobID) {
+			return errModelCancelled
+		}
+		inspect, err := h.inspectBounded(ctx, rt, modelUUID)
 		if err != nil {
 			return err
 		}
@@ -386,6 +463,15 @@ func (h *ModelRun) waitModelReady(ctx context.Context, rt dockerruntime.Runtime,
 				return fmt.Errorf("the model container exited during startup — %s", firstLine(strings.TrimSpace(tail)))
 			}
 		}
+		// The restart counter is what makes a crash loop visible: the exit
+		// itself lasts a fraction of a second and a five-second poll almost
+		// never lands on it, so a dying engine would otherwise present as a
+		// container that is simply "running" until the budget runs out.
+		if inspect.RestartCount > modelMaxRestarts {
+			tail, _ := containerLogsTail(ctx, rt, modelUUID, 20)
+			return fmt.Errorf("the model container has restarted %d times without ever becoming ready — "+
+				"it is crash-looping, not loading: %s", inspect.RestartCount, firstLine(strings.TrimSpace(tail)))
+		}
 		if time.Now().After(deadline) {
 			tail, _ := containerLogsTail(ctx, rt, modelUUID, 20)
 			return fmt.Errorf("the model did not become ready within %s — weight loading can be long, "+
@@ -397,6 +483,27 @@ func (h *ModelRun) waitModelReady(ctx context.Context, rt dockerruntime.Runtime,
 		case <-time.After(5 * time.Second):
 		}
 	}
+}
+
+// inspectBounded observes the container under its own deadline, so a wedged
+// agent channel costs one probe instead of the job.
+func (h *ModelRun) inspectBounded(ctx context.Context, rt dockerruntime.Runtime, modelUUID string) (container.InspectResponse, error) {
+	probeCtx, cancel := context.WithTimeout(ctx, modelProbeTimeout)
+	defer cancel()
+	inspect, err := rt.ContainerInspect(probeCtx, modelUUID)
+	if err != nil && probeCtx.Err() != nil && ctx.Err() == nil {
+		return inspect, fmt.Errorf("the server stopped answering while the model was starting — "+
+			"no reply within %s: %w", modelProbeTimeout, err)
+	}
+	return inspect, err
+}
+
+// cancelRequested reports the operator's request to stop. A store that cannot
+// answer is not a cancellation: the job carries on rather than aborting a
+// start over a transient query error.
+func (h *ModelRun) cancelRequested(ctx context.Context, jobID int64) bool {
+	cancelled, err := h.Store.IsJobCancelRequested(ctx, jobID)
+	return err == nil && cancelled
 }
 
 // lifecycle is the databases' one: the container by name, statuses recorded,

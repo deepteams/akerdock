@@ -3,6 +3,9 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
@@ -33,19 +36,20 @@ func (a *API) jobToAPI(r *http.Request, j store.Job) api.Job {
 		}
 	}
 	return api.Job{
-		Uuid:           ptr(uuidString(j.Uuid)),
-		Type:           ptr(j.JobType),
-		Queue:          ptr(j.Queue),
-		Status:         api.JobStatus(j.Status),
-		Steps:          &steps,
-		Attempt:        ptr(int(j.Attempt)),
-		Result:         result,
-		Error:          jobErr,
-		RetryOfUuid:    retryOf,
-		DeadLetteredAt: timePtr(j.DeadLetteredAt),
-		CreatedAt:      timePtr(j.CreatedAt),
-		UpdatedAt:      timePtr(j.UpdatedAt),
-		FinishedAt:     timePtr(j.FinishedAt),
+		Uuid:              ptr(uuidString(j.Uuid)),
+		Type:              ptr(j.JobType),
+		Queue:             ptr(j.Queue),
+		Status:            api.JobStatus(j.Status),
+		Steps:             &steps,
+		Attempt:           ptr(int(j.Attempt)),
+		CancelRequestedAt: timePtr(j.CancelRequestedAt),
+		Result:            result,
+		Error:             jobErr,
+		RetryOfUuid:       retryOf,
+		DeadLetteredAt:    timePtr(j.DeadLetteredAt),
+		CreatedAt:         timePtr(j.CreatedAt),
+		UpdatedAt:         timePtr(j.UpdatedAt),
+		FinishedAt:        timePtr(j.FinishedAt),
 	}
 }
 
@@ -158,10 +162,11 @@ func (a *API) RetryJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUu
 }
 
 // CancelJob implements POST /jobs/{job_uuid}/cancel (permission:
-// jobs:manage): the enqueue you regret. Only a job that has not started is
-// cancellable — model and database jobs have no cooperative checkpoint, and
-// killing one mid-mutation would leave the server in a state nobody asked
-// for.
+// jobs:manage): the enqueue you regret, and — for the families that poll the
+// flag — the run you regret. A job that has not started stops outright (200);
+// one already in flight is ASKED to stop and answers 202, because the
+// compensation belongs to the handler that knows what it half-created, not to
+// an UPDATE that would leave the server mid-mutation.
 func (a *API) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobUuid) {
 	id, ok := a.require(w, r, auth.PermJobsManage)
 	if !ok {
@@ -176,14 +181,28 @@ func (a *API) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid api.JobU
 		a.internalError(w, r, "cancel job", err)
 		return
 	}
-	if rows == 0 {
-		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
-			"this job already started (or finished) — only scheduled, queued and retry_wait jobs can be cancelled")
+	if rows > 0 {
+		a.recordAudit(r, id, "job.cancel", "job", job.Uuid)
+		job.Status = store.JobStatusCancelled
+		httpapi.WriteJSON(w, http.StatusOK, a.jobToAPI(r, job))
 		return
 	}
-	a.recordAudit(r, id, "job.cancel", "job", job.Uuid)
-	job.Status = store.JobStatusCancelled
-	httpapi.WriteJSON(w, http.StatusOK, a.jobToAPI(r, job))
+	// Already running: the cooperative path. The store restricts the request
+	// to the job types that actually check the flag — a type that took it and
+	// ignored it would read as a cancel that did nothing.
+	asked, err := a.Store.RequestJobCancel(r.Context(), job.ID)
+	if err != nil {
+		a.internalError(w, r, "cancel job", err)
+		return
+	}
+	if asked == 0 {
+		httpapi.WriteError(w, r, http.StatusConflict, httpapi.CodeConflict,
+			"this job cannot be cancelled — it has already finished, or its type has no checkpoint at which to stop safely")
+		return
+	}
+	a.recordAudit(r, id, "job.cancel_requested", "job", job.Uuid)
+	job.CancelRequestedAt = pgtype.Timestamptz{Time: time.Now(), Valid: true}
+	httpapi.WriteJSON(w, http.StatusAccepted, a.jobToAPI(r, job))
 }
 
 // ForgetJob implements POST /jobs/{job_uuid}/forget (permission: write):

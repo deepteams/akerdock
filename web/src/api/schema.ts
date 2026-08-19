@@ -3828,8 +3828,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Cancel a job that has not started
-         * @description Cancels a `scheduled`, `queued` or `retry_wait` job — the enqueue you regret. A job already leased or running is not interrupted (409): model and database jobs have no cooperative checkpoint, and killing them mid-mutation would leave the server in a state nobody asked for.
+         * Cancel a job
+         * @description Cancels a `scheduled`, `queued` or `retry_wait` job outright — the enqueue you regret (200). A job already leased or running is asked to stop instead (202): the deployment and model families poll the request at their checkpoints and compensate on the way out, so the cancel is acknowledged here and observed on the job itself. A family without a checkpoint is refused (409) rather than left half-mutated.
          */
         post: operations["cancelJob"];
         delete?: never;
@@ -5490,11 +5490,16 @@ export interface components {
             server_uuid: string;
             server_name?: string;
             server_gpu_name?: string | null;
-            /** @description The queued or running lifecycle job of this model, when one exists — the platform refuses to queue a second one (409), and a queued job can be cancelled (POST /jobs/{uuid}/cancel). */
+            /** @description The queued or running lifecycle job of this model, when one exists — the platform refuses to queue a second one (409). It can be cancelled at any point (POST /jobs/{uuid}/cancel): queued, it stops outright; running, it stops at its next checkpoint. */
             active_job?: {
                 uuid: string;
                 status: string;
                 job_type: string;
+                /**
+                 * Format: date-time
+                 * @description Set once a cancellation has been asked for — the job is stopping, and asking again changes nothing.
+                 */
+                cancel_requested_at?: string | null;
             } | null;
             /** @description Desired status (running/stopped). */
             status: string;
@@ -7064,6 +7069,11 @@ export interface components {
              * @default 1
              */
             readonly attempt: number;
+            /**
+             * Format: date-time
+             * @description When a cooperative cancellation was asked for. The job keeps its running status until it reaches its next checkpoint — this is what distinguishes "still running" from "stopping".
+             */
+            readonly cancel_requested_at?: string | null;
             /** @description Structured result on success (content depends on the job type, never a secret). */
             readonly result?: {
                 [key: string]: unknown;
@@ -14842,6 +14852,15 @@ export interface operations {
         responses: {
             /** @description Cancelled. */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Job"];
+                };
+            };
+            /** @description Cancellation requested — the job stops at its next checkpoint. */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };

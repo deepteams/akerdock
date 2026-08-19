@@ -189,7 +189,7 @@ func TestModelscovOperationGuardAndFollowUp(t *testing.T) {
 			t.Fatalf("the refusal must say why: %s", rec.Body.String())
 		}
 	})
-	t.Run("a queued job cancels; a started one refuses", func(t *testing.T) {
+	t.Run("a queued job cancels outright; a running one is asked", func(t *testing.T) {
 		a, _ := rescovAPI(t)
 		rec := httptest.NewRecorder()
 		a.CancelJob(rec, rescovReq(http.MethodPost, "/jobs/"+fixtureUUID+"/cancel", ``), fixtureUUID)
@@ -197,10 +197,24 @@ func TestModelscovOperationGuardAndFollowUp(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), "cancelled") {
 			t.Fatalf("the cancelled job must come back cancelled: %s", rec.Body.String())
 		}
+		// Already started: the outright cancel matches nothing, and the
+		// cooperative request takes over — 202, because the job stops at its
+		// next checkpoint rather than here.
 		a2, db2 := rescovAPI(t)
 		db2.execTagOn["CancelQueuedJob"] = "UPDATE 0"
 		rec = httptest.NewRecorder()
 		a2.CancelJob(rec, rescovReq(http.MethodPost, "/jobs/"+fixtureUUID+"/cancel", ``), fixtureUUID)
+		rescovWant(t, rec, http.StatusAccepted)
+		if !strings.Contains(rec.Body.String(), "cancel_requested_at") {
+			t.Fatalf("the acknowledgement must carry the request's timestamp: %s", rec.Body.String())
+		}
+		// Neither path applies — finished, or a family with no checkpoint at
+		// which stopping would be safe.
+		a3, db3 := rescovAPI(t)
+		db3.execTagOn["CancelQueuedJob"] = "UPDATE 0"
+		db3.execTagOn["RequestJobCancel"] = "UPDATE 0"
+		rec = httptest.NewRecorder()
+		a3.CancelJob(rec, rescovReq(http.MethodPost, "/jobs/"+fixtureUUID+"/cancel", ``), fixtureUUID)
 		rescovWant(t, rec, http.StatusConflict)
 	})
 	t.Run("model variables ride the resource machinery", func(t *testing.T) {

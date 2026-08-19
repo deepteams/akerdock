@@ -60,8 +60,14 @@ Parameter changes apply at the next start: serve flags are read once, when the e
 process starts.
 
 One lifecycle operation runs at a time: a second start while one is queued is refused, and
-the page shows the active job — follow it, or cancel it while it has not started. The
-**Logs** card is the engine's own console (the weight download narrates itself there);
+the page shows the active job — follow it, or cancel it. A job that has not started stops
+at once; one already running is asked, stops at its next checkpoint, and leaves no engine
+loading behind it. A start that never becomes ready gives up on its own: a container that
+keeps being restarted is crash-looping, not loading, and the job says so with the engine's
+last lines rather than waiting out the fifteen-minute readiness budget. It is then stopped
+rather than left to consume the GPU, and it is **not** retried — fix the configuration and
+start again. The **Logs** card is the engine's own console (the weight download narrates
+itself there);
 switch on *Follow* while a start runs. **Environment variables** use the same machinery as
 every resource — shared references resolve, server variables inherit, and your variable
 wins over anything managed, `HF_TOKEN` included; they reach the engine at the next start.

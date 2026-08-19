@@ -7,6 +7,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -68,7 +69,7 @@ func TestModelInferenceConfig(t *testing.T) {
 
 // modelrunFixture hand-builds the row (the fake DB cannot hold a ciphertext
 // and a JSON list in the same []byte fill) and wires the fakes.
-func modelrunFixture(t *testing.T, engine store.InferenceEngine, shmMB *int32) (*ModelRun, store.GetModelByIDRow, *fake.Runtime) {
+func modelrunFixture(t *testing.T, engine store.InferenceEngine, shmMB *int32) (*ModelRun, store.GetModelByIDRow, *fake.Runtime, *prevjobsDB) {
 	t.Helper()
 	q, keyring, logger, db := prevjobsDeps(t)
 	db.strs["GetServerByID"] = "192.168.10.20"
@@ -79,6 +80,10 @@ func modelrunFixture(t *testing.T, engine store.InferenceEngine, shmMB *int32) (
 	// would carry undecryptable value_enc blobs. The env test sets its own.
 	db.rows["ListEnvVarsForDeploy"] = 0
 	db.rows["ListSharedVariablesForResource"] = 0
+	// Nobody asked to cancel: the fake fills bool columns truthy, and the
+	// readiness checkpoint would read that as an operator standing on the
+	// stop button through every one of these tests.
+	db.bools["IsJobCancelRequested"] = false
 	uuid := pguuid.MustParse(jobFixtureUUID)
 	enc := prevjobsEncrypt(t, keyring, "models", "api_key_enc", []byte("akm_unit_key"))
 	row := store.GetModelByIDRow{
@@ -99,7 +104,7 @@ func modelrunFixture(t *testing.T, engine store.InferenceEngine, shmMB *int32) (
 	rt.ContainerRemoveFn = func(context.Context, string, container.RemoveOptions) error { return nil }
 	rt.ContainerStartFn = func(context.Context, string, container.StartOptions) error { return nil }
 	h := &ModelRun{Store: q, Keyring: keyring, Docker: fixedSource{rt: rt}, HostOps: fixedHost{}, Logger: logger, HFToken: "hf_unit"}
-	return h, row, rt
+	return h, row, rt, db
 }
 
 // The container contract, both engines (ADR-079 §2 + ADR-080 §4): device
@@ -116,14 +121,14 @@ func TestModelProvisionContainerContract(t *testing.T) {
 
 	t.Run("vllm: flags-only command, host IPC", func(t *testing.T) {
 		shrink(t)
-		h, row, rt := modelrunFixture(t, store.InferenceEngineVllm, nil)
+		h, row, rt, _ := modelrunFixture(t, store.InferenceEngineVllm, nil)
 		var config *container.Config
 		var host *container.HostConfig
 		rt.ContainerCreateFn = func(_ context.Context, c *container.Config, hc *container.HostConfig, _ *network.NetworkingConfig, _ *ocispec.Platform, _ string) (container.CreateResponse, error) {
 			config, host = c, hc
 			return container.CreateResponse{}, nil
 		}
-		if err := h.provision(context.Background(), rt, row, jobFixtureUUID); err != nil {
+		if err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1); err != nil {
 			t.Fatal(err)
 		}
 		if config.Cmd[0] != "--model" {
@@ -163,14 +168,14 @@ func TestModelProvisionContainerContract(t *testing.T) {
 	t.Run("sglang: full invocation, explicit shm replaces host IPC", func(t *testing.T) {
 		shrink(t)
 		shm := int32(4096)
-		h, row, rt := modelrunFixture(t, store.InferenceEngineSglang, &shm)
+		h, row, rt, _ := modelrunFixture(t, store.InferenceEngineSglang, &shm)
 		var config *container.Config
 		var host *container.HostConfig
 		rt.ContainerCreateFn = func(_ context.Context, c *container.Config, hc *container.HostConfig, _ *network.NetworkingConfig, _ *ocispec.Platform, _ string) (container.CreateResponse, error) {
 			config, host = c, hc
 			return container.CreateResponse{}, nil
 		}
-		if err := h.provision(context.Background(), rt, row, jobFixtureUUID); err != nil {
+		if err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1); err != nil {
 			t.Fatal(err)
 		}
 		if got := strings.Join(config.Cmd[:3], " "); got != "python3 -m sglang.launch_server" {
@@ -183,7 +188,7 @@ func TestModelProvisionContainerContract(t *testing.T) {
 
 	t.Run("a container that exits during startup fails fast, logs attached", func(t *testing.T) {
 		shrink(t)
-		h, row, rt := modelrunFixture(t, store.InferenceEngineVllm, nil)
+		h, row, rt, _ := modelrunFixture(t, store.InferenceEngineVllm, nil)
 		rt.ContainerInspectFn = func(context.Context, string) (container.InspectResponse, error) {
 			return container.InspectResponse{ContainerJSONBase: &container.ContainerJSONBase{
 				State: &container.State{Status: "exited"},
@@ -192,11 +197,108 @@ func TestModelProvisionContainerContract(t *testing.T) {
 		rt.ContainerLogsFn = func(context.Context, string, container.LogsOptions) (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader("")), nil
 		}
-		err := h.provision(context.Background(), rt, row, jobFixtureUUID)
+		err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1)
 		if err == nil || !strings.Contains(err.Error(), "exited during startup") {
 			t.Fatalf("err = %v", err)
 		}
 	})
+
+	// The crash loop the exit check cannot see: `unless-stopped` relaunches a
+	// dying engine within a second, so every five-second poll lands on
+	// `running` and the old code waited out the whole readiness budget on a
+	// model that had already died repeatedly.
+	t.Run("a crash-looping container fails on the restart count, not the budget", func(t *testing.T) {
+		h, row, rt, _ := modelrunFixture(t, store.InferenceEngineVllm, nil)
+		// A budget long enough that reaching it would BE the failure: only
+		// the restart counter can end this test.
+		previous := modelReadyBudget
+		modelReadyBudget = time.Hour
+		t.Cleanup(func() { modelReadyBudget = previous })
+		rt.ContainerInspectFn = func(context.Context, string) (container.InspectResponse, error) {
+			return container.InspectResponse{
+				ContainerJSONBase: &container.ContainerJSONBase{
+					State:        &container.State{Status: "running", Restarting: true},
+					RestartCount: modelMaxRestarts + 1,
+				},
+				// A TTY container's logs come through undemultiplexed, which
+				// is what lets this test write them as plain text.
+				Config: &container.Config{Tty: true},
+			}, nil
+		}
+		rt.ContainerLogsFn = func(context.Context, string, container.LogsOptions) (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader("CUDA out of memory")), nil
+		}
+		var stopped bool
+		rt.ContainerStopFn = func(context.Context, string, container.StopOptions) error {
+			stopped = true
+			return nil
+		}
+		err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1)
+		if err == nil || !strings.Contains(err.Error(), "crash-looping") {
+			t.Fatalf("err = %v", err)
+		}
+		if !strings.Contains(err.Error(), "CUDA out of memory") {
+			t.Fatalf("the engine's own last words are the diagnosis: %v", err)
+		}
+		// Without this the container keeps restarting on the GPU forever,
+		// holding memory long after the job gave up.
+		if !stopped {
+			t.Fatal("a failed start must stop what it created — the restart policy obeys nothing else")
+		}
+	})
+
+	t.Run("a cancelled start stops at the readiness checkpoint", func(t *testing.T) {
+		h, row, rt, db := modelrunFixture(t, store.InferenceEngineVllm, nil)
+		previous := modelReadyBudget
+		modelReadyBudget = time.Hour
+		t.Cleanup(func() { modelReadyBudget = previous })
+		// Loading, honestly and indefinitely: only the operator's request can
+		// end this wait.
+		rt.ContainerInspectFn = func(context.Context, string) (container.InspectResponse, error) {
+			return container.InspectResponse{ContainerJSONBase: &container.ContainerJSONBase{
+				State: &container.State{Status: "running", Health: &container.Health{Status: "starting"}},
+			}}, nil
+		}
+		var stopped bool
+		rt.ContainerStopFn = func(context.Context, string, container.StopOptions) error {
+			stopped = true
+			return nil
+		}
+		db.bools["IsJobCancelRequested"] = true
+		err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1)
+		if !errors.Is(err, errModelCancelled) {
+			t.Fatalf("err = %v — the checkpoint must honour the request", err)
+		}
+		if !stopped {
+			t.Fatal("a cancelled start leaves no container loading behind it")
+		}
+	})
+}
+
+// A job cancelled while it queued must never reach the server: the lease is
+// taken before the worker reads the flag, so the check belongs before the
+// first command, and the outcome is a cancellation — not a failure the queue
+// would then retry.
+func TestModelExecuteCancelledBeforeItStarts(t *testing.T) {
+	h, _, rt, db := modelrunFixture(t, store.InferenceEngineVllm, nil)
+	db.bools["IsJobCancelRequested"] = true
+	var reached bool
+	rt.ContainerCreateFn = func(context.Context, *container.Config, *container.HostConfig, *network.NetworkingConfig, *ocispec.Platform, string) (container.CreateResponse, error) {
+		reached = true
+		return container.CreateResponse{}, nil
+	}
+
+	job := store.Job{ID: 1, JobType: TypeModelStart, Payload: []byte(`{"resource_id":7,"action":"start"}`)}
+	result, err := h.Execute(context.Background(), job, queue.NewStepRecorder(h.Store, job))
+	if err != nil {
+		t.Fatalf("a cancellation must not be reported as a job failure: %v", err)
+	}
+	if m, _ := result.(map[string]any); m["status"] != "cancelled" {
+		t.Fatalf("result = %+v", result)
+	}
+	if reached {
+		t.Fatal("a cancelled job must not claim the GPU on its way out")
+	}
 }
 
 // Execute: stop is a state, and the swap stops the neighbour BEFORE anything
@@ -205,7 +307,8 @@ func TestModelExecuteLifecycleAndSwap(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("stop records the stopped state", func(t *testing.T) {
-		q, _, logger, _ := prevjobsDeps(t)
+		q, _, logger, db := prevjobsDeps(t)
+		db.bools["IsJobCancelRequested"] = false
 		rt := &fake.Runtime{}
 		stopped := false
 		rt.ContainerStopFn = func(context.Context, string, container.StopOptions) error {
@@ -223,7 +326,8 @@ func TestModelExecuteLifecycleAndSwap(t *testing.T) {
 	})
 
 	t.Run("a swap start stops the neighbour first", func(t *testing.T) {
-		q, keyring, logger, _ := prevjobsDeps(t)
+		q, keyring, logger, db := prevjobsDeps(t)
+		db.bools["IsJobCancelRequested"] = false
 		rt := &fake.Runtime{}
 		var order []string
 		rt.ContainerStopFn = func(context.Context, string, container.StopOptions) error {
