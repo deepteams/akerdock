@@ -6638,7 +6638,10 @@ type GetModelLogsParams struct {
 
 // StartModelJSONBody defines parameters for StartModel.
 type StartModelJSONBody struct {
-	// Swap Stop the running model of the same server first.
+	// Force Start alongside the running models despite the declared fractions not fitting. The operator takes the outcome — at worst an out-of-memory failure at load time.
+	Force *bool `json:"force,omitempty"`
+
+	// Swap Stop the running models of the same server first, inside the same job.
 	Swap *bool `json:"swap,omitempty"`
 }
 

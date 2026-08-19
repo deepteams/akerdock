@@ -859,15 +859,26 @@ export class ModelDetailComponent {
       }
       if (err instanceof ApiError && err.status === 409 && err.code === 'gpu_busy') {
         this.busy.set(false);
-        const swap = await this.confirm.ask({
-          title: 'The GPU is occupied',
-          message: err.message + ' Stop it and start this model instead?',
-          confirmLabel: 'Stop it and start this one',
+        // Two ways forward, not one: the declared fractions do not fit, but
+        // they are a declaration — the operator reading the card may know
+        // better (ADR-082 §3). The details carry the arithmetic.
+        const choice = await this.confirm.askChoice({
+          title: 'The GPU does not have room',
+          message: err.message,
+          bullets: err.details.map((d) => d.message),
+          confirmLabel: 'Stop them and start this one',
+          alternativeLabel: 'Start it alongside',
+          danger: false,
         });
-        if (swap) {
+        if (choice === 'confirm') {
           await this.lifecycle(
             () => this.api.client().startModel(this.uuid, { swap: true }),
-            'Swap accepted — the running model stops first, then this one loads.',
+            'Swap accepted — the running models stop first, then this one loads.',
+          );
+        } else if (choice === 'alternative') {
+          await this.lifecycle(
+            () => this.api.client().startModel(this.uuid, { force: true }),
+            'Start accepted alongside the running models — watch the logs for an out-of-memory failure.',
           );
         }
         return;

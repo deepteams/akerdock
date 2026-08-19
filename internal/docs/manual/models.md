@@ -51,10 +51,23 @@ weights live in one shared cache per server, which neither a stop nor a delete t
 A stopped model is a state, not a failure: nothing restarts it behind your back, and its
 endpoint, key and configuration wait unchanged for the resume.
 
-Starting a model while another runs on the same GPU server is refused with the running
-model's name — two models rarely fit one GPU. Confirming the dialog **is** the swap: one
-job stops the neighbour, then starts yours, in that order. This is the daily loop on a
-one-GPU machine — stop A, try B, come back to A — made one click each way.
+Starting a model while others run on the same GPU server adds up what they each declare in
+**Memory fraction** and compares it with the card. If it fits — two models at 45 % and
+40 %, say — the start simply proceeds: running several models on one GPU is a normal thing
+to do, not an exception to argue for.
+
+If it does not fit, the refusal shows the arithmetic — each running model with what it
+claims, yours, and the total — and offers two ways forward. **Stop them and start this
+one** is the swap: one job stops the neighbours, then starts yours, in that order; this is
+the daily loop on a one-GPU machine, stop A, try B, come back to A, made one click each
+way. **Start it alongside** overrides the sum, because the fractions are a declaration:
+a quantized model often uses far less than its flag reserves, and if `nvidia-smi` tells you
+there is room, you are the one who knows. The worst case is an out-of-memory failure while
+the weights load, which the start now catches quickly rather than waiting out.
+
+A model that declares no memory fraction counts as 90 % — what both engines take when the
+flag is absent. If one unconfigured model seems to fill the card on its own, that is why:
+give it an explicit fraction and the arithmetic gets its room back.
 
 Parameter changes apply at the next start: serve flags are read once, when the engine
 process starts.

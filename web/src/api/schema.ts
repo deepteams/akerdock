@@ -3422,7 +3422,7 @@ export interface paths {
         put?: never;
         /**
          * Start a model
-         * @description Starting while another model runs on the same GPU server answers 409 naming it (ADR-080 §5) — pass `swap=true` to stop it and start this one in a single ordered job, the operator's actual intent.
+         * @description Starting while other models run on the same GPU server sums their declared `memory_fraction` with this one's (ADR-082): within the card's budget the start simply proceeds. Over it, 409 `gpu_busy` states the arithmetic — every running model with its fraction, and the total — and two ways past it: `swap=true` stops those models first and starts this one in a single ordered job, `force=true` starts it alongside them. The two are mutually exclusive; sending both is refused. A model that declares no fraction counts as the engines' own default, 0.9.
          */
         post: operations["startModel"];
         delete?: never;
@@ -14031,8 +14031,10 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
-                    /** @description Stop the running model of the same server first. */
+                    /** @description Stop the running models of the same server first, inside the same job. */
                     swap?: boolean;
+                    /** @description Start alongside the running models despite the declared fractions not fitting. The operator takes the outcome — at worst an out-of-memory failure at load time. */
+                    force?: boolean;
                 };
             };
         };

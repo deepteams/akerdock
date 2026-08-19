@@ -1470,7 +1470,7 @@ export class AkerDockClient {
     return this.request<Response>('DELETE', `/models/${uuid}`);
   }
 
-  startModel(uuid: string, body?: { swap?: boolean }) {
+  startModel(uuid: string, body?: { swap?: boolean; force?: boolean }) {
     type Response =
       paths['/models/{model_uuid}/start']['post']['responses']['202']['content']['application/json'];
     return this.request<Response>('POST', `/models/${uuid}/start`, { body });

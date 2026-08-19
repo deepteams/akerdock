@@ -16,6 +16,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/api"
 	"github.com/deepteams/akerdock/internal/auth"
+	"github.com/deepteams/akerdock/internal/store"
 )
 
 func TestModelscovCreateModel(t *testing.T) {
@@ -70,14 +71,49 @@ func TestModelscovCreateModel(t *testing.T) {
 }
 
 func TestModelscovLifecycleAndSwap(t *testing.T) {
-	t.Run("starting into an occupied GPU answers 409 naming it", func(t *testing.T) {
+	t.Run("a GPU whose fractions do not fit answers 409 with the arithmetic", func(t *testing.T) {
 		a, _ := rescovAPI(t)
 		rec := httptest.NewRecorder()
-		// The fixture DB answers one running model on the server.
+		// The fixture DB answers one running model, and every fraction scans
+		// as 1.0: the whole card each, twice over.
 		a.StartModel(rec, rescovReq(http.MethodPost, "/models/"+fixtureUUID+"/start", `{}`), fixtureUUID)
 		rescovWant(t, rec, http.StatusConflict)
-		if !strings.Contains(rec.Body.String(), "swap=true") {
-			t.Fatalf("the refusal must offer the swap: %s", rec.Body.String())
+		body := rec.Body.String()
+		for _, want := range []string{"swap=true", "force=true", "claims 100%", "200% claimed", "95%"} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("the refusal must state the arithmetic and both ways past it (%q missing): %s", want, body)
+			}
+		}
+	})
+	// ADR-082 §1: the case ADR-080 §5 named as the reason for softness and
+	// then made impossible — two small models sharing one card.
+	t.Run("fractions that fit start without ceremony", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		fraction := 0.4
+		db.floatFill = &fraction // 0.4 running + 0.4 candidate = 0.8, within budget
+		rec := httptest.NewRecorder()
+		a.StartModel(rec, rescovReq(http.MethodPost, "/models/"+fixtureUUID+"/start", `{}`), fixtureUUID)
+		rescovWant(t, rec, http.StatusAccepted)
+	})
+	t.Run("force=true starts alongside without stopping anything", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.StartModel(rec, rescovReq(http.MethodPost, "/models/"+fixtureUUID+"/start", `{"force":true}`), fixtureUUID)
+		rescovWant(t, rec, http.StatusAccepted)
+		for _, arg := range db.lastArgs["EnqueueJob"] {
+			if b, ok := arg.([]byte); ok && strings.Contains(string(b), "stop_resource_id") {
+				t.Fatalf("forcing starts BESIDE the neighbours; it must never stop one: %s", b)
+			}
+		}
+	})
+	t.Run("swap and force together are refused before anything is enqueued", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.StartModel(rec, rescovReq(http.MethodPost, "/models/"+fixtureUUID+"/start",
+			`{"swap":true,"force":true}`), fixtureUUID)
+		rescovWant(t, rec, http.StatusConflict)
+		if _, enqueued := db.lastArgs["EnqueueJob"]; enqueued {
+			t.Fatal("a contradictory request must not reach the queue")
 		}
 	})
 	t.Run("swap=true enqueues one ordered job carrying the neighbour", func(t *testing.T) {
@@ -409,4 +445,44 @@ func TestModelscovModelDomains(t *testing.T) {
 			fixtureUUID, api.UpdateModelParams{IfMatch: `"1"`})
 		rescovWant(t, rec, http.StatusUnprocessableEntity)
 	})
+}
+
+// The guard's arithmetic on its own (ADR-082 §2): a model that declares no
+// fraction is unknown, not free — counting it as zero would make the sum
+// optimistic exactly where the operator gave it least to work with.
+func TestModelscovMemoryFractionArithmetic(t *testing.T) {
+	if got := memoryFraction(nil); got != defaultMemoryFraction {
+		t.Fatalf("an undeclared fraction = %v, want the engines' own default %v", got, defaultMemoryFraction)
+	}
+	zero := 0.0
+	if got := memoryFraction(&zero); got != defaultMemoryFraction {
+		t.Fatalf("a zero fraction is not a model that uses no memory: %v", got)
+	}
+	declared := 0.45
+	if got := memoryFraction(&declared); got != declared {
+		t.Fatalf("a declared fraction must be taken at its word: %v", got)
+	}
+	if got := percent(0.855); got != 86 {
+		t.Fatalf("percent(0.855) = %d, want whole percents an operator reads", got)
+	}
+
+	// Two neighbours, one of them undeclared: the details name each with what
+	// it claims, then the candidate, then the total against the budget.
+	other := 0.3
+	details := gpuClaimDetails(&declared, []store.ListRunningModelsOnServerRow{
+		{Name: "qwen", MemoryFraction: &other},
+		{Name: "unconfigured", MemoryFraction: nil},
+	})
+	if len(details) != 4 {
+		t.Fatalf("details = %+v — one line per running model, plus the candidate and the total", details)
+	}
+	joined := ""
+	for _, d := range details {
+		joined += d.Message + "|"
+	}
+	for _, want := range []string{"qwen claims 30%", "unconfigured claims 90%", "this model claims 45%", "165% claimed"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("%q missing from the arithmetic: %s", want, joined)
+		}
+	}
 }

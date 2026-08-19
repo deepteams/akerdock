@@ -43,16 +43,19 @@ type rescovDB struct {
 	countOne   bool
 	nilPtrs    bool // leave every pointer-typed column NULL
 	emptyBytes bool // leave every bytea column empty
-	engine     string
-	errOn      map[string]error
-	errAt      map[string]int // fail only the Nth call of that query
-	noRowsOn   map[string]bool
-	zeroOn     map[string]bool
-	rowsOn     map[string]int
-	execTagOn  map[string]string
-	beginErr   error
-	commitErr  error
-	calls      map[string]int
+	// floatFill overrides the 1.0 every float column otherwise scans as —
+	// what the ADR-082 guard's arithmetic needs to be steerable.
+	floatFill *float64
+	engine    string
+	errOn     map[string]error
+	errAt     map[string]int // fail only the Nth call of that query
+	noRowsOn  map[string]bool
+	zeroOn    map[string]bool
+	rowsOn    map[string]int
+	execTagOn map[string]string
+	beginErr  error
+	commitErr error
+	calls     map[string]int
 	// lastArgs keeps the most recent positional arguments per query, for the
 	// few tests that assert WHAT was written, not only the status code.
 	lastArgs map[string][]any
@@ -153,6 +156,17 @@ func rescovFill(db *rescovDB, dest any, zero bool) error {
 		v := reflect.ValueOf(dest)
 		if v.Kind() == reflect.Pointer && !v.IsNil() && v.Elem().Kind() == reflect.Pointer {
 			v.Elem().SetZero()
+			return nil
+		}
+	}
+	if db.floatFill != nil {
+		switch d := dest.(type) {
+		case *float64:
+			*d = *db.floatFill
+			return nil
+		case **float64:
+			value := *db.floatFill
+			*d = &value
 			return nil
 		}
 	}

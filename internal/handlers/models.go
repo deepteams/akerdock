@@ -3,8 +3,9 @@ package handlers
 // Models — first-class inference resources (ADR-080). The handlers mirror
 // the databases family: same resource anchoring, same lifecycle enqueue,
 // same credential envelope; what is new is the GPU placement guard
-// (ADR-079), the soft occupied-GPU start guard with its one-click swap, and
-// the serve command spoken both ways through internal/inference.
+// (ADR-079), the occupied-GPU start guard that counts declared memory rather
+// than models (ADR-082, revising ADR-080 §5), and the serve command spoken
+// both ways through internal/inference.
 
 import (
 	"context"
@@ -12,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -589,10 +591,27 @@ func (a *API) DeleteModel(w http.ResponseWriter, r *http.Request, modelUuid api.
 	writeJobAccepted(w, job)
 }
 
+// gpuMemoryBudget is how much of a card the declared fractions may claim
+// between them (ADR-082 §1). The remainder is headroom, not superstition: the
+// fractions are of TOTAL memory and each engine process carries a CUDA context
+// and allocator slack its own flag does not fully account for. A sum landing
+// just under 1.0 is the case most likely to fail deep in weight loading, which
+// is the worst moment to find out.
+const gpuMemoryBudget = 0.95
+
+// defaultMemoryFraction is what a model that declares nothing actually takes:
+// the value both engines default to when the flag is absent
+// (--gpu-memory-utilization, --mem-fraction-static). Counting it as zero would
+// make the arithmetic optimistic exactly where the operator gave it least to
+// work with (ADR-082 §2).
+const defaultMemoryFraction = 0.9
+
 // StartModel implements POST /models/{model_uuid}/start (permission:
-// models:lifecycle) — with the ADR-080 §5 soft guard: starting into an
-// occupied GPU answers 409 naming the running model, and `swap=true` stops
-// it and starts this one inside a single ordered job.
+// models:lifecycle) — with the ADR-082 guard: the declared memory fractions of
+// the models already running on the server are summed with this one's. Within
+// the card's budget the start simply proceeds; over it, 409 states the
+// arithmetic and offers `swap=true` (stop them first) or `force=true` (run
+// beside them anyway).
 func (a *API) StartModel(w http.ResponseWriter, r *http.Request, modelUuid api.ModelUuid) {
 	id, ok := a.require(w, r, auth.PermModelsLifecycle)
 	if !ok {
@@ -603,10 +622,18 @@ func (a *API) StartModel(w http.ResponseWriter, r *http.Request, modelUuid api.M
 		return
 	}
 	var body struct {
-		Swap bool `json:"swap"`
+		Swap  bool `json:"swap"`
+		Force bool `json:"force"`
 	}
 	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&body) // absent body = no swap
+		_ = json.NewDecoder(r.Body).Decode(&body) // absent body = neither
+	}
+	// "Stop them" and "run beside them" cannot both be the intent, and
+	// guessing which one wins would be the platform deciding.
+	if body.Swap && body.Force {
+		httpapi.WriteError(w, r, http.StatusConflict, "invalid_state",
+			"swap and force are mutually exclusive — swap stops the running models, force starts alongside them")
+		return
 	}
 
 	running, err := a.Store.ListRunningModelsOnServer(r.Context(), store.ListRunningModelsOnServerParams{
@@ -618,19 +645,29 @@ func (a *API) StartModel(w http.ResponseWriter, r *http.Request, modelUuid api.M
 	}
 	var stopFirst int64
 	if len(running) > 0 {
-		if !body.Swap {
-			names := make([]string, 0, len(running))
-			for _, m := range running {
-				names = append(names, m.Name)
+		switch {
+		case body.Swap:
+			// The one-click swap: the job stops the neighbour FIRST, in order.
+			first, err := a.Store.GetModelByUUID(r.Context(), store.GetModelByUUIDParams{Uuid: running[0].Uuid, TeamID: id.TeamID})
+			if err == nil {
+				stopFirst = first.Resource.ID
 			}
-			httpapi.WriteError(w, r, http.StatusConflict, "gpu_busy",
-				fmt.Sprintf("%s is running on this GPU server — two models rarely fit one GPU; retry with swap=true to stop it and start this one", strings.Join(names, ", ")))
-			return
-		}
-		// The one-click swap: the job stops the neighbour FIRST, in order.
-		first, err := a.Store.GetModelByUUID(r.Context(), store.GetModelByUUIDParams{Uuid: running[0].Uuid, TeamID: id.TeamID})
-		if err == nil {
-			stopFirst = first.Resource.ID
+		case body.Force:
+			// The operator has read the card and knows what the declared
+			// fractions do not say. Nothing to check.
+		default:
+			claimed := memoryFraction(row.Model.MemoryFraction)
+			for _, m := range running {
+				claimed += memoryFraction(m.MemoryFraction)
+			}
+			if claimed > gpuMemoryBudget {
+				httpapi.WriteErrorDetails(w, r, http.StatusConflict, "gpu_busy",
+					fmt.Sprintf("the models already running on this GPU server, plus this one, claim %d%% of it — "+
+						"more than fits; retry with swap=true to stop them and start this one, or force=true to start it alongside them anyway",
+						percent(claimed)),
+					gpuClaimDetails(row.Model.MemoryFraction, running))
+				return
+			}
 		}
 	}
 
@@ -646,6 +683,46 @@ func (a *API) StartModel(w http.ResponseWriter, r *http.Request, modelUuid api.M
 	}
 	a.recordAudit(r, id, "model.start", "model", row.Resource.Uuid)
 	writeJobAccepted(w, job)
+}
+
+// memoryFraction reads a declared fraction, an absent one meaning the engines'
+// own default rather than nothing (ADR-082 §2).
+func memoryFraction(declared *float64) float64 {
+	if declared == nil || *declared <= 0 {
+		return defaultMemoryFraction
+	}
+	return *declared
+}
+
+// percent renders a fraction the way an operator reads a GPU: whole percents.
+func percent(fraction float64) int {
+	return int(math.Round(fraction * 100))
+}
+
+// gpuClaimDetails spells the arithmetic out — every running model with what it
+// claims, then the candidate, then the total. The refusal has to be actionable:
+// which models, at what fractions, summing to what (ADR-082 §1).
+func gpuClaimDetails(candidate *float64, running []store.ListRunningModelsOnServerRow) []api.ErrorDetail {
+	details := make([]api.ErrorDetail, 0, len(running)+2)
+	total := memoryFraction(candidate)
+	for _, m := range running {
+		total += memoryFraction(m.MemoryFraction)
+		details = append(details, api.ErrorDetail{
+			Code:    ptr("running_model"),
+			Message: fmt.Sprintf("%s claims %d%%", m.Name, percent(memoryFraction(m.MemoryFraction))),
+		})
+	}
+	details = append(details,
+		api.ErrorDetail{
+			Code:    ptr("candidate"),
+			Message: fmt.Sprintf("this model claims %d%%", percent(memoryFraction(candidate))),
+		},
+		api.ErrorDetail{
+			Code:    ptr("total"),
+			Message: fmt.Sprintf("%d%% claimed, %d%% is the most that fits", percent(total), percent(gpuMemoryBudget)),
+		},
+	)
+	return details
 }
 
 // StopModel implements POST /models/{model_uuid}/stop (permission:
