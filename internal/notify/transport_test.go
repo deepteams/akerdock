@@ -378,3 +378,17 @@ func TestSendMailConnectionAndDowngradeErrors(t *testing.T) {
 		t.Fatalf("downgrade protection error = %v", err)
 	}
 }
+
+func TestSMTPDialIsGuardedByDefault(t *testing.T) {
+	// A zero-value Sender — and the production New() — must refuse a private
+	// SMTP host: an smtp channel's host is team configuration, so it is in the
+	// SSRF policy (threat model AB-10). Only NewSystem, the instance relay,
+	// may reach internal hosts.
+	cfg := SMTPConfig{Host: "127.0.0.1", Port: 1, From: "alerts@example.com", To: []string{"ops@example.com"}}
+	for name, s := range map[string]*Sender{"zero value": {}, "New": New()} {
+		if err := s.sendMail(context.Background(), cfg, Event{Type: "uptime.down.v1"}); err == nil ||
+			!strings.Contains(err.Error(), "blocked outbound address") {
+			t.Errorf("%s: sendMail to loopback: err = %v, want the SSRF guard", name, err)
+		}
+	}
+}

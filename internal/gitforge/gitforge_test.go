@@ -45,7 +45,7 @@ func TestGitLabSetCommitStatus(t *testing.T) {
 	srv := httptest.NewServer(capture(t, &records, func(r *http.Request) (int, any) { return 201, nil }))
 	defer srv.Close()
 
-	gl := &GitLab{BaseURL: srv.URL, Token: "tok"}
+	gl := &GitLab{BaseURL: srv.URL, Token: "tok", HTTPClient: srv.Client()}
 	if err := gl.SetCommitStatus(context.Background(), "42", "abc", StatusRunning, "https://pr-1.example.com"); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestGitLabStatusMapping(t *testing.T) {
 	var records []record
 	srv := httptest.NewServer(capture(t, &records, func(r *http.Request) (int, any) { return 201, nil }))
 	defer srv.Close()
-	gl := &GitLab{BaseURL: srv.URL, Token: "t"}
+	gl := &GitLab{BaseURL: srv.URL, Token: "t", HTTPClient: srv.Client()}
 
 	want := map[StatusState]string{
 		StatusQueued: "pending", StatusRunning: "running",
@@ -92,7 +92,7 @@ func TestGitLabUpsertCommentCreatesThenUpdates(t *testing.T) {
 		return 201, nil
 	}))
 	defer srv.Close()
-	gl := &GitLab{BaseURL: srv.URL, Token: "t"}
+	gl := &GitLab{BaseURL: srv.URL, Token: "t", HTTPClient: srv.Client()}
 
 	// First transition: no marked note exists, POST.
 	if err := gl.UpsertComment(context.Background(), "42", 9, "preview-x-9", "hello"); err != nil {
@@ -139,7 +139,7 @@ func TestGitLabAuthorCanWrite(t *testing.T) {
 			w.WriteHeader(c.status)
 			_ = json.NewEncoder(w).Encode(map[string]any{"access_level": c.level})
 		}))
-		gl := &GitLab{BaseURL: srv.URL, Token: "t"}
+		gl := &GitLab{BaseURL: srv.URL, Token: "t", HTTPClient: srv.Client()}
 		got, err := gl.AuthorCanWrite(context.Background(), "1", "u", 5)
 		srv.Close()
 		if err != nil {
@@ -156,7 +156,7 @@ func TestGiteaSetCommitStatus(t *testing.T) {
 	srv := httptest.NewServer(capture(t, &records, func(r *http.Request) (int, any) { return 201, nil }))
 	defer srv.Close()
 
-	g := &Gitea{BaseURL: srv.URL, Token: "tok"}
+	g := &Gitea{BaseURL: srv.URL, Token: "tok", HTTPClient: srv.Client()}
 	if err := g.SetCommitStatus(context.Background(), "org/app", "abc", StatusFailure, "https://x"); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +181,7 @@ func TestGiteaUpsertCommentUpdatesInPlace(t *testing.T) {
 		return 200, nil
 	}))
 	defer srv.Close()
-	g := &Gitea{BaseURL: srv.URL, Token: "t"}
+	g := &Gitea{BaseURL: srv.URL, Token: "t", HTTPClient: srv.Client()}
 	if err := g.UpsertComment(context.Background(), "o/r", 3, "m1", "new"); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestGiteaUpsertCommentCreates(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	g := &Gitea{BaseURL: srv.URL, Token: "t"}
+	g := &Gitea{BaseURL: srv.URL, Token: "t", HTTPClient: srv.Client()}
 	if err := g.UpsertComment(context.Background(), "o/r", 3, "m1", "new"); err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestGiteaAuthorCanWrite(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"permission": perm})
 		}))
-		g := &Gitea{BaseURL: srv.URL, Token: "t"}
+		g := &Gitea{BaseURL: srv.URL, Token: "t", HTTPClient: srv.Client()}
 		got, err := g.AuthorCanWrite(context.Background(), "o/r", "bob", 0)
 		srv.Close()
 		if err != nil {
@@ -293,5 +293,16 @@ func TestDoJSONFailureModes(t *testing.T) {
 	if _, err := doJSON(ctx, response(http.StatusOK, "not-json"), http.MethodGet,
 		"https://forge.invalid/path", nil, nil, &out); err == nil || !strings.Contains(err.Error(), "unparsable") {
 		t.Fatalf("malformed response should be explicit, got %v", err)
+	}
+}
+
+func TestNilClientRefusesPrivateDestinations(t *testing.T) {
+	// The nil-client fallback is the SSRF guard (threat model AB-10): a forge
+	// BaseURL is team configuration, so pointing it at a private address must
+	// be refused at connection time, not fetched.
+	gl := &GitLab{BaseURL: "http://127.0.0.1:1", Token: "t"}
+	err := gl.SetCommitStatus(context.Background(), "o/r", "sha", StatusSuccess, "https://example.com")
+	if err == nil || !strings.Contains(err.Error(), "blocked outbound address") {
+		t.Fatalf("private BaseURL with the default client: err = %v, want the SSRF guard", err)
 	}
 }

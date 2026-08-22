@@ -5,6 +5,7 @@ import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
@@ -31,6 +32,7 @@ const COMPOSE_PLACEHOLDER = `services:
   selector: 'app-services',
   standalone: true,
   imports: [
+    ModalComponent,
     FormsModule,
     RouterLink,
     CardComponent,
@@ -44,8 +46,8 @@ const COMPOSE_PLACEHOLDER = `services:
       <header class="akd-bar">
         <h1>Services</h1>
         <button class="akd-btn akd-btn--primary" type="button" (click)="toggleCreate()">
-          <akd-icon [name]="creating() ? 'x' : 'plus'" [size]="15" />
-          {{ creating() ? 'Cancel' : 'New compose stack' }}
+          <akd-icon name="plus" [size]="15" />
+          New compose stack
         </button>
       </header>
 
@@ -53,110 +55,117 @@ const COMPOSE_PLACEHOLDER = `services:
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      @if (creating()) {
-        <akd-card title="New compose stack" class="create">
-          <form class="fields" (ngSubmit)="create()">
-            <div class="akd-field">
-              <label class="akd-field__label" for="sv-name">Name</label>
-              <input
-                id="sv-name"
-                name="name"
-                class="akd-input akd-input--mono"
-                required
-                [(ngModel)]="name"
+      <akd-modal [open]="creating()" title="New compose stack" (closed)="creating.set(false)">
+        <form id="svc-create-form" class="modal-stack" (ngSubmit)="create()">
+          <div class="akd-field">
+            <label class="akd-field__label" for="sv-name">Name</label>
+            <input
+              id="sv-name"
+              name="name"
+              class="akd-input akd-input--mono"
+              required
+              [(ngModel)]="name"
+              [disabled]="busy()"
+            />
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="sv-project">Project</label>
+            <div class="akd-select">
+              <select
+                id="sv-project"
+                name="project"
+                class="akd-input"
+                [(ngModel)]="projectUuid"
+                (ngModelChange)="onProjectChange($event)"
                 [disabled]="busy()"
-              />
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="sv-project">Project</label>
-              <div class="akd-select">
-                <select
-                  id="sv-project"
-                  name="project"
-                  class="akd-input"
-                  [(ngModel)]="projectUuid"
-                  (ngModelChange)="onProjectChange($event)"
-                  [disabled]="busy()"
-                >
-                  <option value="" disabled>Choose a project…</option>
-                  @for (project of projects(); track project.uuid) {
-                    <option [value]="project.uuid">{{ project.name }}</option>
-                  }
-                </select>
-              </div>
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="sv-environment">Environment</label>
-              <div class="akd-select">
-                <select
-                  id="sv-environment"
-                  name="environment"
-                  class="akd-input"
-                  [(ngModel)]="environmentUuid"
-                  [disabled]="busy() || !projectUuid"
-                >
-                  <option value="" disabled>
-                    {{ projectUuid ? 'Choose an environment…' : 'Pick a project first' }}
-                  </option>
-                  @for (env of environments(); track env.uuid) {
-                    <option [value]="env.uuid">{{ env.name }}</option>
-                  }
-                </select>
-              </div>
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="sv-server">Server</label>
-              <div class="akd-select">
-                <select
-                  id="sv-server"
-                  name="server"
-                  class="akd-input"
-                  [(ngModel)]="serverUuid"
-                  [disabled]="busy()"
-                >
-                  <option value="" disabled>Choose a server…</option>
-                  @for (server of servers(); track server.uuid) {
-                    <option [value]="server.uuid">{{ server.name }} ({{ server.status }})</option>
-                  }
-                </select>
-              </div>
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="sv-compose">Compose file</label>
-              <textarea
-                id="sv-compose"
-                name="compose"
-                class="akd-input akd-input--mono"
-                rows="14"
-                [placeholder]="composePlaceholder"
-                [(ngModel)]="composeContent"
-                [disabled]="busy()"
-              ></textarea>
-              <span class="akd-field__hint">
-                Validated on save — build: is not allowed, magic variables SERVICE_* are.
-              </span>
-            </div>
-            <label class="akd-check">
-              <input
-                type="checkbox"
-                name="instantDeploy"
-                [(ngModel)]="instantDeploy"
-                [disabled]="busy()"
-              />
-              Deploy immediately after creation
-            </label>
-            <div>
-              <button
-                class="akd-btn akd-btn--primary"
-                type="submit"
-                [disabled]="busy() || !valid()"
               >
-                {{ busy() ? 'Creating…' : 'Create stack' }}
-              </button>
+                <option value="" disabled>Choose a project…</option>
+                @for (project of projects(); track project.uuid) {
+                  <option [value]="project.uuid">{{ project.name }}</option>
+                }
+              </select>
             </div>
-          </form>
-        </akd-card>
-      }
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="sv-environment">Environment</label>
+            <div class="akd-select">
+              <select
+                id="sv-environment"
+                name="environment"
+                class="akd-input"
+                [(ngModel)]="environmentUuid"
+                [disabled]="busy() || !projectUuid"
+              >
+                <option value="" disabled>
+                  {{ projectUuid ? 'Choose an environment…' : 'Pick a project first' }}
+                </option>
+                @for (env of environments(); track env.uuid) {
+                  <option [value]="env.uuid">{{ env.name }}</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="sv-server">Server</label>
+            <div class="akd-select">
+              <select
+                id="sv-server"
+                name="server"
+                class="akd-input"
+                [(ngModel)]="serverUuid"
+                [disabled]="busy()"
+              >
+                <option value="" disabled>Choose a server…</option>
+                @for (server of servers(); track server.uuid) {
+                  <option [value]="server.uuid">{{ server.name }} ({{ server.status }})</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="akd-field">
+            <label class="akd-field__label" for="sv-compose">Compose file</label>
+            <textarea
+              id="sv-compose"
+              name="compose"
+              class="akd-input akd-input--mono"
+              rows="14"
+              [placeholder]="composePlaceholder"
+              [(ngModel)]="composeContent"
+              [disabled]="busy()"
+            ></textarea>
+            <span class="akd-field__hint">
+              Validated on save — build: is not allowed, magic variables SERVICE_* are.
+            </span>
+          </div>
+          <label class="akd-check">
+            <input
+              type="checkbox"
+              name="instantDeploy"
+              [(ngModel)]="instantDeploy"
+              [disabled]="busy()"
+            />
+            Deploy immediately after creation
+          </label>
+        </form>
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="creating.set(false)"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="svc-create-form"
+            [disabled]="busy() || !valid()"
+          >
+            {{ busy() ? 'Creating…' : 'Create stack' }}
+          </button>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -200,9 +209,9 @@ const COMPOSE_PLACEHOLDER = `services:
   `,
   styles: [
     `
-      .create {
-        margin-bottom: var(--space-5);
-        max-width: 720px;
+      .modal-stack {
+        display: grid;
+        gap: var(--space-4);
       }
       .fields {
         display: grid;

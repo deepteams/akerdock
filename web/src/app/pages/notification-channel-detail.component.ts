@@ -9,7 +9,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ApiService } from '../core/api.service';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
 import { BreadcrumbComponent, type Crumb } from '../../ui/breadcrumb/breadcrumb.component';
@@ -23,6 +23,7 @@ type NotificationChannelUpdate = components['schemas']['NotificationChannelUpdat
 type NotificationRule = components['schemas']['NotificationRule'];
 
 type Severity = 'info' | 'warning' | 'critical';
+type TabId = 'settings' | 'events' | 'routing';
 interface CatalogEvent {
   type: string;
   label: string;
@@ -173,354 +174,378 @@ const EVENT_CATALOG: { title: string; events: CatalogEvent[] }[] = [
           </div>
         }
 
-        <div class="cards">
-          <akd-card title="Settings">
-            <p class="akd-field__hint hint">
-              Stored secrets are never returned, so replacing the configuration means re-entering it
-              in full — blank means "leave the whole config as it is".
-            </p>
-            <form class="form" (ngSubmit)="save(ch)">
-              <div class="akd-field">
-                <label class="akd-field__label" for="ch-name">Name</label>
-                <input
-                  id="ch-name"
-                  name="name"
-                  class="akd-input"
-                  [(ngModel)]="name"
-                  [disabled]="busy()"
-                  required
-                />
-              </div>
-
-              @switch (ch.kind) {
-                @case ('smtp') {
-                  <div class="row">
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-host">Host</label>
-                      <input id="ch-host" name="host" class="akd-input" [(ngModel)]="smtpHost" />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-port">Port</label>
-                      <input
-                        id="ch-port"
-                        name="port"
-                        type="number"
-                        class="akd-input"
-                        [(ngModel)]="smtpPort"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-enc">Encryption</label>
-                      <div class="akd-select">
-                        <select
-                          id="ch-enc"
-                          name="encryption"
-                          class="akd-input"
-                          [(ngModel)]="smtpEncryption"
-                        >
-                          <option value="starttls">starttls</option>
-                          <option value="tls">tls</option>
-                          <option value="none">none (local relay only)</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="row">
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-user">Username (optional)</label>
-                      <input
-                        id="ch-user"
-                        name="username"
-                        class="akd-input"
-                        [(ngModel)]="smtpUsername"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-pass">Password (optional)</label>
-                      <input
-                        id="ch-pass"
-                        name="password"
-                        type="password"
-                        class="akd-input"
-                        autocomplete="new-password"
-                        [(ngModel)]="smtpPassword"
-                      />
-                    </div>
-                  </div>
-                  <div class="row">
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-from">From</label>
-                      <input id="ch-from" name="from" class="akd-input" [(ngModel)]="from" />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-to">To (comma-separated)</label>
-                      <input id="ch-to" name="to" class="akd-input" [(ngModel)]="to" />
-                    </div>
-                  </div>
-                }
-                @case ('resend') {
-                  <div class="row">
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-key">API key</label>
-                      <input
-                        id="ch-key"
-                        name="api_key"
-                        type="password"
-                        class="akd-input"
-                        autocomplete="new-password"
-                        [(ngModel)]="resendApiKey"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-from">From</label>
-                      <input id="ch-from" name="from" class="akd-input" [(ngModel)]="from" />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-to">To (comma-separated)</label>
-                      <input id="ch-to" name="to" class="akd-input" [(ngModel)]="to" />
-                    </div>
-                  </div>
-                }
-                @case ('telegram') {
-                  <div class="row">
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-bot">Bot token</label>
-                      <input
-                        id="ch-bot"
-                        name="bot_token"
-                        type="password"
-                        class="akd-input"
-                        autocomplete="new-password"
-                        [(ngModel)]="telegramBotToken"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-chat">Chat id</label>
-                      <input
-                        id="ch-chat"
-                        name="chat_id"
-                        class="akd-input"
-                        [(ngModel)]="telegramChatId"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-topic">Topic id (optional)</label>
-                      <input
-                        id="ch-topic"
-                        name="topic_id"
-                        class="akd-input"
-                        [(ngModel)]="telegramTopicId"
-                      />
-                    </div>
-                  </div>
-                }
-                @case ('pushover') {
-                  <div class="row">
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-token">Application token</label>
-                      <input
-                        id="ch-token"
-                        name="token"
-                        type="password"
-                        class="akd-input"
-                        autocomplete="new-password"
-                        [(ngModel)]="pushoverToken"
-                      />
-                    </div>
-                    <div class="akd-field">
-                      <label class="akd-field__label" for="ch-userkey">User key</label>
-                      <input
-                        id="ch-userkey"
-                        name="user_key"
-                        class="akd-input"
-                        [(ngModel)]="pushoverUserKey"
-                      />
-                    </div>
-                  </div>
-                }
-                @default {
-                  <div class="akd-field">
-                    <label class="akd-field__label" for="ch-url">Webhook URL</label>
-                    <input
-                      id="ch-url"
-                      name="url"
-                      class="akd-input akd-input--mono"
-                      placeholder="leave blank to keep the stored URL"
-                      [(ngModel)]="url"
-                    />
-                  </div>
-                }
+        <nav class="akd-tabs" role="tablist" aria-label="Channel sections">
+          @for (t of tabs; track t.id) {
+            <button
+              type="button"
+              class="akd-tab"
+              role="tab"
+              [class.akd-tab--active]="tab() === t.id"
+              [attr.aria-selected]="tab() === t.id"
+              (click)="selectTab(t.id)"
+            >
+              {{ t.label }}
+              @if (t.id === 'routing' && rules().length > 0) {
+                <span class="akd-tab__count">{{ rules().length }}</span>
               }
+            </button>
+          }
+        </nav>
 
-              <div>
-                <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-                  {{ busy() ? 'Saving…' : 'Save' }}
-                </button>
-              </div>
-            </form>
-          </akd-card>
-
-          <akd-card title="Events">
-            <p class="akd-field__hint hint">
-              Turn on the events this channel should receive (team-wide). For finer control — per
-              project/environment, minimum severity, digests — use Advanced routing below.
-            </p>
-            @for (group of eventCatalog; track group.title) {
-              <div class="evgroup">
-                <div class="evgroup__title">{{ group.title }}</div>
-                @for (ev of group.events; track ev.type) {
-                  <label class="ev">
-                    <input
-                      type="checkbox"
-                      class="akd-switch"
-                      [checked]="isSubscribed(ev.type)"
-                      [disabled]="busy()"
-                      (change)="toggleEvent(ch, ev.type, $any($event.target).checked)"
-                    />
-                    <span class="ev__label">{{ ev.label }}</span>
-                    <span class="akd-badge akd-badge--mono ev__sev sev-{{ ev.severity }}">{{
-                      ev.severity
-                    }}</span>
-                    <code class="ev__type akd-muted">{{ ev.type }}</code>
-                  </label>
-                }
-              </div>
-            }
-          </akd-card>
-
-          <akd-card title="Advanced routing">
-            <p class="akd-field__hint hint">
-              A rule routes matching events to this channel — optionally scoped to a project or
-              environment, above a minimum severity, batched into a digest. Critical events always
-              bypass digests and debounce windows. The toggles above are simply team-wide rules.
-            </p>
-
-            <form class="form rule-form" (ngSubmit)="createRule(ch)">
-              <div class="row">
+        @switch (tab()) {
+          @case ('settings') {
+            <akd-card title="Settings">
+              <p class="akd-field__hint hint">
+                Stored secrets are never returned, so replacing the configuration means re-entering
+                it in full — blank means "leave the whole config as it is".
+              </p>
+              <form class="form" (ngSubmit)="save(ch)">
                 <div class="akd-field">
-                  <label class="akd-field__label" for="rl-event">Event type</label>
+                  <label class="akd-field__label" for="ch-name">Name</label>
                   <input
-                    id="rl-event"
-                    name="event_type"
-                    class="akd-input akd-input--mono"
-                    placeholder="e.g. deployment.failed.v1"
-                    [(ngModel)]="ruleEventType"
+                    id="ch-name"
+                    name="name"
+                    class="akd-input"
+                    [(ngModel)]="name"
                     [disabled]="busy()"
                     required
                   />
                 </div>
-                <div class="akd-field">
-                  <label class="akd-field__label" for="rl-severity">Min severity</label>
-                  <div class="akd-select">
-                    <select
-                      id="rl-severity"
-                      name="min_severity"
-                      class="akd-input"
-                      [(ngModel)]="ruleMinSeverity"
-                    >
-                      <option value="info">info</option>
-                      <option value="warning">warning</option>
-                      <option value="critical">critical</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-              <div class="row">
-                <div class="akd-field">
-                  <label class="akd-field__label" for="rl-project"
-                    >Project uuid (blank = whole team)</label
-                  >
-                  <input
-                    id="rl-project"
-                    name="project_uuid"
-                    class="akd-input akd-input--mono"
-                    [(ngModel)]="ruleProjectUuid"
-                  />
-                </div>
-                <div class="akd-field">
-                  <label class="akd-field__label" for="rl-env">Environment uuid (optional)</label>
-                  <input
-                    id="rl-env"
-                    name="environment_uuid"
-                    class="akd-input akd-input--mono"
-                    [(ngModel)]="ruleEnvironmentUuid"
-                  />
-                </div>
-              </div>
-              <div class="row digest">
-                <label class="akd-check">
-                  <input type="checkbox" name="digest_enabled" [(ngModel)]="ruleDigestEnabled" />
-                  Digest (batch non-critical events)
-                </label>
-                @if (ruleDigestEnabled) {
-                  <div class="akd-field">
-                    <label class="akd-field__label" for="rl-digest">Digest window (minutes)</label>
-                    <input
-                      id="rl-digest"
-                      name="digest_interval_minutes"
-                      type="number"
-                      min="1"
-                      class="akd-input"
-                      [(ngModel)]="ruleDigestInterval"
-                    />
-                  </div>
-                }
-              </div>
-              <div>
-                <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-                  {{ busy() ? 'Adding…' : 'Add rule' }}
-                </button>
-              </div>
-            </form>
 
-            @if (rules().length === 0) {
-              <p class="akd-muted">No rules yet — this channel receives nothing.</p>
-            } @else {
-              <div class="rules">
-                @for (rule of rules(); track rule.uuid) {
-                  <div class="rule">
-                    <!-- Rules have no update endpoint: the switch reflects the
-                         stored state and cannot be flipped in place. -->
-                    <input
-                      type="checkbox"
-                      class="akd-switch"
-                      [checked]="rule.enabled"
-                      disabled
-                      [attr.aria-label]="
-                        'Rule ' + rule.event_type + (rule.enabled ? ' enabled' : ' disabled')
-                      "
-                    />
-                    <div class="rule__text">
-                      <div class="rule__label akd-mono">{{ rule.event_type }}</div>
-                      <div class="rule__desc">
-                        min severity {{ rule.min_severity }} ·
-                        {{ rule.project_uuid ?? 'whole team' }}
-                        @if (rule.environment_uuid) {
-                          / {{ rule.environment_uuid }}
-                        }
-                        ·
-                        {{
-                          rule.digest_enabled
-                            ? 'digest every ' + rule.digest_interval_minutes + ' min'
-                            : 'no digest'
-                        }}
+                @switch (ch.kind) {
+                  @case ('smtp') {
+                    <div class="row">
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-host">Host</label>
+                        <input id="ch-host" name="host" class="akd-input" [(ngModel)]="smtpHost" />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-port">Port</label>
+                        <input
+                          id="ch-port"
+                          name="port"
+                          type="number"
+                          class="akd-input"
+                          [(ngModel)]="smtpPort"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-enc">Encryption</label>
+                        <div class="akd-select">
+                          <select
+                            id="ch-enc"
+                            name="encryption"
+                            class="akd-input"
+                            [(ngModel)]="smtpEncryption"
+                          >
+                            <option value="starttls">starttls</option>
+                            <option value="tls">tls</option>
+                            <option value="none">none (local relay only)</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
-                    <button
-                      class="akd-iconbtn"
-                      type="button"
-                      [disabled]="busy()"
-                      (click)="removeRule(ch, rule)"
-                      [attr.aria-label]="'Delete rule for ' + rule.event_type"
-                    >
-                      <akd-icon name="trash-2" [size]="15" />
-                    </button>
-                  </div>
+                    <div class="row">
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-user">Username (optional)</label>
+                        <input
+                          id="ch-user"
+                          name="username"
+                          class="akd-input"
+                          [(ngModel)]="smtpUsername"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-pass">Password (optional)</label>
+                        <input
+                          id="ch-pass"
+                          name="password"
+                          type="password"
+                          class="akd-input"
+                          autocomplete="new-password"
+                          [(ngModel)]="smtpPassword"
+                        />
+                      </div>
+                    </div>
+                    <div class="row">
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-from">From</label>
+                        <input id="ch-from" name="from" class="akd-input" [(ngModel)]="from" />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-to">To (comma-separated)</label>
+                        <input id="ch-to" name="to" class="akd-input" [(ngModel)]="to" />
+                      </div>
+                    </div>
+                  }
+                  @case ('resend') {
+                    <div class="row">
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-key">API key</label>
+                        <input
+                          id="ch-key"
+                          name="api_key"
+                          type="password"
+                          class="akd-input"
+                          autocomplete="new-password"
+                          [(ngModel)]="resendApiKey"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-from">From</label>
+                        <input id="ch-from" name="from" class="akd-input" [(ngModel)]="from" />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-to">To (comma-separated)</label>
+                        <input id="ch-to" name="to" class="akd-input" [(ngModel)]="to" />
+                      </div>
+                    </div>
+                  }
+                  @case ('telegram') {
+                    <div class="row">
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-bot">Bot token</label>
+                        <input
+                          id="ch-bot"
+                          name="bot_token"
+                          type="password"
+                          class="akd-input"
+                          autocomplete="new-password"
+                          [(ngModel)]="telegramBotToken"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-chat">Chat id</label>
+                        <input
+                          id="ch-chat"
+                          name="chat_id"
+                          class="akd-input"
+                          [(ngModel)]="telegramChatId"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-topic">Topic id (optional)</label>
+                        <input
+                          id="ch-topic"
+                          name="topic_id"
+                          class="akd-input"
+                          [(ngModel)]="telegramTopicId"
+                        />
+                      </div>
+                    </div>
+                  }
+                  @case ('pushover') {
+                    <div class="row">
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-token">Application token</label>
+                        <input
+                          id="ch-token"
+                          name="token"
+                          type="password"
+                          class="akd-input"
+                          autocomplete="new-password"
+                          [(ngModel)]="pushoverToken"
+                        />
+                      </div>
+                      <div class="akd-field">
+                        <label class="akd-field__label" for="ch-userkey">User key</label>
+                        <input
+                          id="ch-userkey"
+                          name="user_key"
+                          class="akd-input"
+                          [(ngModel)]="pushoverUserKey"
+                        />
+                      </div>
+                    </div>
+                  }
+                  @default {
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="ch-url">Webhook URL</label>
+                      <input
+                        id="ch-url"
+                        name="url"
+                        class="akd-input akd-input--mono"
+                        placeholder="leave blank to keep the stored URL"
+                        [(ngModel)]="url"
+                      />
+                    </div>
+                  }
                 }
-              </div>
-            }
-          </akd-card>
-        </div>
+
+                <div>
+                  <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                    {{ busy() ? 'Saving…' : 'Save' }}
+                  </button>
+                </div>
+              </form>
+            </akd-card>
+          }
+          @case ('events') {
+            <akd-card title="Events">
+              <p class="akd-field__hint hint">
+                Turn on the events this channel should receive (team-wide). For finer control — per
+                project/environment, minimum severity, digests — use Advanced routing below.
+              </p>
+              @for (group of eventCatalog; track group.title) {
+                <div class="evgroup">
+                  <div class="evgroup__title">{{ group.title }}</div>
+                  @for (ev of group.events; track ev.type) {
+                    <label class="ev">
+                      <input
+                        type="checkbox"
+                        class="akd-switch"
+                        [checked]="isSubscribed(ev.type)"
+                        [disabled]="busy()"
+                        (change)="toggleEvent(ch, ev.type, $any($event.target).checked)"
+                      />
+                      <span class="ev__label">{{ ev.label }}</span>
+                      <span class="akd-badge akd-badge--mono ev__sev sev-{{ ev.severity }}">{{
+                        ev.severity
+                      }}</span>
+                      <code class="ev__type akd-muted">{{ ev.type }}</code>
+                    </label>
+                  }
+                </div>
+              }
+            </akd-card>
+          }
+          @case ('routing') {
+            <akd-card title="Advanced routing">
+              <p class="akd-field__hint hint">
+                A rule routes matching events to this channel — optionally scoped to a project or
+                environment, above a minimum severity, batched into a digest. Critical events always
+                bypass digests and debounce windows. The toggles above are simply team-wide rules.
+              </p>
+
+              <form class="form rule-form" (ngSubmit)="createRule(ch)">
+                <div class="row">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="rl-event">Event type</label>
+                    <input
+                      id="rl-event"
+                      name="event_type"
+                      class="akd-input akd-input--mono"
+                      placeholder="e.g. deployment.failed.v1"
+                      [(ngModel)]="ruleEventType"
+                      [disabled]="busy()"
+                      required
+                    />
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="rl-severity">Min severity</label>
+                    <div class="akd-select">
+                      <select
+                        id="rl-severity"
+                        name="min_severity"
+                        class="akd-input"
+                        [(ngModel)]="ruleMinSeverity"
+                      >
+                        <option value="info">info</option>
+                        <option value="warning">warning</option>
+                        <option value="critical">critical</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="rl-project"
+                      >Project uuid (blank = whole team)</label
+                    >
+                    <input
+                      id="rl-project"
+                      name="project_uuid"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="ruleProjectUuid"
+                    />
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="rl-env">Environment uuid (optional)</label>
+                    <input
+                      id="rl-env"
+                      name="environment_uuid"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="ruleEnvironmentUuid"
+                    />
+                  </div>
+                </div>
+                <div class="row digest">
+                  <label class="akd-check">
+                    <input type="checkbox" name="digest_enabled" [(ngModel)]="ruleDigestEnabled" />
+                    Digest (batch non-critical events)
+                  </label>
+                  @if (ruleDigestEnabled) {
+                    <div class="akd-field">
+                      <label class="akd-field__label" for="rl-digest"
+                        >Digest window (minutes)</label
+                      >
+                      <input
+                        id="rl-digest"
+                        name="digest_interval_minutes"
+                        type="number"
+                        min="1"
+                        class="akd-input"
+                        [(ngModel)]="ruleDigestInterval"
+                      />
+                    </div>
+                  }
+                </div>
+                <div>
+                  <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                    {{ busy() ? 'Adding…' : 'Add rule' }}
+                  </button>
+                </div>
+              </form>
+
+              @if (rules().length === 0) {
+                <p class="akd-muted">No rules yet — this channel receives nothing.</p>
+              } @else {
+                <div class="rules">
+                  @for (rule of rules(); track rule.uuid) {
+                    <div class="rule">
+                      <!-- Rules have no update endpoint: the switch reflects the
+                           stored state and cannot be flipped in place. -->
+                      <input
+                        type="checkbox"
+                        class="akd-switch"
+                        [checked]="rule.enabled"
+                        disabled
+                        [attr.aria-label]="
+                          'Rule ' + rule.event_type + (rule.enabled ? ' enabled' : ' disabled')
+                        "
+                      />
+                      <div class="rule__text">
+                        <div class="rule__label akd-mono">{{ rule.event_type }}</div>
+                        <div class="rule__desc">
+                          min severity {{ rule.min_severity }} ·
+                          {{ rule.project_uuid ?? 'whole team' }}
+                          @if (rule.environment_uuid) {
+                            / {{ rule.environment_uuid }}
+                          }
+                          ·
+                          {{
+                            rule.digest_enabled
+                              ? 'digest every ' + rule.digest_interval_minutes + ' min'
+                              : 'no digest'
+                          }}
+                        </div>
+                      </div>
+                      <button
+                        class="akd-iconbtn"
+                        type="button"
+                        [disabled]="busy()"
+                        (click)="removeRule(ch, rule)"
+                        [attr.aria-label]="'Delete rule for ' + rule.event_type"
+                      >
+                        <akd-icon name="trash-2" [size]="15" />
+                      </button>
+                    </div>
+                  }
+                </div>
+              }
+            </akd-card>
+          }
+        }
       }
     </div>
   `,
@@ -631,9 +656,29 @@ export class NotificationChannelDetailComponent {
   private readonly api = inject(ApiService);
   private readonly confirm = inject(ConfirmService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   /** Bound by the router from the :uuid path parameter. */
   readonly uuid = input.required<string>();
+
+  protected readonly tabs = [
+    { id: 'settings', label: 'Settings' },
+    { id: 'events', label: 'Events' },
+    { id: 'routing', label: 'Advanced routing' },
+  ] as const;
+  protected readonly tab = signal<TabId>('settings');
+  /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
+   * back/forward walk the tabs. */
+  readonly tabParam = input<string | undefined>(undefined, { alias: 'tab' });
+
+  protected selectTab(id: TabId): void {
+    if (this.tab() === id) return;
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: id === 'settings' ? null : id },
+      queryParamsHandling: 'merge',
+    });
+  }
 
   protected readonly channel = signal<NotificationChannel | null>(null);
   protected readonly rules = signal<NotificationRule[]>([]);
@@ -681,6 +726,12 @@ export class NotificationChannelDetailComponent {
     effect(() => {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
+      // URL -> state: seeds the tab on load and follows back/forward.
+      effect(() => {
+        const wanted = this.tabParam();
+        const valid = this.tabs.find((t) => t.id === wanted)?.id;
+        this.tab.set(valid ?? 'settings');
+      });
     });
   }
 

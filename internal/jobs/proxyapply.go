@@ -30,7 +30,29 @@ type ProxyApplier struct {
 	Host   hostops.Ops
 	Server store.Server
 	// Network is the destination network the proxy must be attached to.
+	// Empty skips the attach — the edge relay dials a LAN address and has no
+	// Docker network to join (ADR-077).
 	Network string
+	// Edge, when set, refreshes the ADR-077 relay file on the server's
+	// designated edge after every successful apply on this server. Optional:
+	// the break-glass proxy repair runs with no agent channel at all
+	// (ADR-062 §3) and simply cannot carry it.
+	Edge *EdgeSyncer
+}
+
+// syncEdge refreshes the relay file after a successful apply. Best-effort by
+// design: the origin's routing DID apply — the application works on its own
+// server — and the edge is rebuilt whole on the next apply anyway, so a
+// stalled edge must not fail a deployment that succeeded. The reserved scope
+// prefix keeps the edge's own files from re-triggering the sync.
+func (p *ProxyApplier) syncEdge(ctx context.Context, scope string) {
+	if p.Edge == nil || p.Server.EdgeServerID == nil || strings.HasPrefix(scope, proxy.EdgeScopePrefix) {
+		return
+	}
+	if err := p.Edge.Sync(ctx, p.Server); err != nil && p.Edge.Logger != nil {
+		p.Edge.Logger.Warn("edge relay sync failed — the origin's routing applied; the edge converges on the next apply",
+			"server_id", p.Server.ID, "error", err)
+	}
 }
 
 // Apply writes the routing file for one application, verifies that the
@@ -55,7 +77,11 @@ func (p *ProxyApplier) Apply(ctx context.Context, appUUID, content, expectEndpoi
 		applyErr = p.verify(ctx, appUUID, content, expectEndpoint)
 	}
 	if applyErr == nil {
-		return p.Store.MarkProxyRevisionApplied(ctx, rev.ID)
+		if err := p.Store.MarkProxyRevisionApplied(ctx, rev.ID); err != nil {
+			return err
+		}
+		p.syncEdge(ctx, scope)
+		return nil
 	}
 
 	// Verification failed: re-apply the last applied revision of the same
@@ -91,7 +117,9 @@ func (p *ProxyApplier) upload(ctx context.Context, appUUID, content string) erro
 	// Best-effort, as the shell's `|| true` was: "already connected" answers
 	// vary by engine version, and the verification below is the real gate — a
 	// proxy off the network never exposes the endpoint.
-	_ = p.Docker.NetworkConnect(ctx, p.Network, proxy.ContainerName, nil)
+	if p.Network != "" {
+		_ = p.Docker.NetworkConnect(ctx, p.Network, proxy.ContainerName, nil)
+	}
 	return p.Host.WriteFile(ctx, agentwire.FileWriteParams{
 		Path: path, Content: []byte(content), Mode: 0o600, Atomic: true,
 	})

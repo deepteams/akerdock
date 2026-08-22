@@ -10,7 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { CardComponent } from '../../ui/card/card.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { ApiService } from '../core/api.service';
@@ -24,6 +24,7 @@ type PortForwardSession = components['schemas']['PortForwardSessionInfo'];
 type Server = components['schemas']['Server'];
 type Project = components['schemas']['Project'];
 type Environment = components['schemas']['Environment'];
+type TabId = 'settings' | 'tunnels' | 'grants';
 
 /**
  * One bastion target, and the two things an operator actually comes here for:
@@ -60,259 +61,287 @@ type Environment = components['schemas']['Environment'];
       }
 
       @if (endpoint(); as ep) {
-        <akd-card title="Destination">
-          <form class="fields" (ngSubmit)="save()">
-            <p class="intro">
-              Changing the address changes what your team can reach from
-              <strong>{{ serverName() }}</strong> — it is audited as such.
-            </p>
-            <div class="row">
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-name">Name</label>
-                <input
-                  id="ep-name"
-                  name="name"
-                  class="akd-input akd-input--mono"
-                  [(ngModel)]="name"
-                  [disabled]="busy()"
-                  required
-                />
-              </div>
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-host">Host</label>
-                <input
-                  id="ep-host"
-                  name="host"
-                  class="akd-input akd-input--mono"
-                  [(ngModel)]="host"
-                  [disabled]="busy()"
-                  required
-                />
-              </div>
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-port">Port</label>
-                <input
-                  id="ep-port"
-                  name="port"
-                  type="number"
-                  class="akd-input akd-input--mono"
-                  [(ngModel)]="port"
-                  [disabled]="busy()"
-                  required
-                />
-              </div>
-            </div>
-            <div class="akd-field">
-              <label class="akd-field__label" for="ep-description">Description</label>
-              <input
-                id="ep-description"
-                name="description"
-                class="akd-input"
-                placeholder="e.g. read replica of the billing database"
-                [(ngModel)]="description"
-                [disabled]="busy()"
-              />
-            </div>
-            <div class="row">
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-server">Egress server</label>
-                <select
-                  id="ep-server"
-                  name="server"
-                  class="akd-input"
-                  [(ngModel)]="serverUuid"
-                  [disabled]="busy()"
-                  required
-                >
-                  @for (server of servers(); track server.uuid) {
-                    <option [value]="server.uuid">{{ server.name }}</option>
-                  }
-                </select>
-              </div>
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-criticality">Access regime</label>
-                <select
-                  id="ep-criticality"
-                  name="criticality"
-                  class="akd-input"
-                  [(ngModel)]="criticality"
-                  [disabled]="busy()"
-                >
-                  <option value="sensitive">Sensitive — access must be requested</option>
-                  <option value="standard">Standard — open to anyone who may tunnel</option>
-                </select>
-              </div>
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-window">Longest access window (min)</label>
-                <input
-                  id="ep-window"
-                  name="window"
-                  type="number"
-                  class="akd-input akd-input--mono"
-                  [(ngModel)]="maxGrantMinutes"
-                  [disabled]="busy() || criticality === 'standard'"
-                />
-              </div>
-            </div>
-            <div class="row">
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-project">Related project</label>
-                <select
-                  id="ep-project"
-                  name="project"
-                  class="akd-input"
-                  [ngModel]="projectUuid"
-                  (ngModelChange)="onProjectChange($event)"
-                  [disabled]="busy()"
-                >
-                  <option value="">Not related to a project</option>
-                  @for (project of projects(); track project.uuid) {
-                    <option [value]="project.uuid">{{ project.name }}</option>
-                  }
-                </select>
-                <span class="akd-field__hint">
-                  Descriptive only: it records what this destination is for, and is not an access
-                  boundary (ADR-047).
-                </span>
-              </div>
-              <div class="akd-field">
-                <label class="akd-field__label" for="ep-environment">…and environment</label>
-                <select
-                  id="ep-environment"
-                  name="environment"
-                  class="akd-input"
-                  [(ngModel)]="environmentUuid"
-                  [disabled]="busy() || !projectUuid"
-                >
-                  <option value="">Every environment of the project</option>
-                  @for (environment of environments(); track environment.uuid) {
-                    <option [value]="environment.uuid">{{ environment.name }}</option>
-                  }
-                </select>
-              </div>
-            </div>
-            <div class="actions-row">
-              <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-                {{ busy() ? 'Saving…' : 'Save changes' }}
-              </button>
-              @if (ep.criticality === 'sensitive') {
-                <a
-                  class="akd-btn akd-btn--ghost"
-                  [routerLink]="['/external-endpoints', ep.uuid, 'request-access']"
-                >
-                  Request access
-                </a>
+        <nav class="akd-tabs" role="tablist" aria-label="Endpoint sections">
+          @for (t of tabs; track t.id) {
+            <button
+              type="button"
+              class="akd-tab"
+              role="tab"
+              [class.akd-tab--active]="tab() === t.id"
+              [attr.aria-selected]="tab() === t.id"
+              (click)="selectTab(t.id)"
+            >
+              {{ t.label }}
+              @if (t.id === 'tunnels' && sessions().length > 0) {
+                <span class="akd-tab__count">{{ sessions().length }}</span>
               }
-            </div>
-          </form>
-        </akd-card>
-
-        <akd-card title="Open tunnels">
-          <p class="intro">
-            What is connected to this endpoint right now. Cutting one tells the developer why it
-            went away — a tunnel that dies in silence is read as a bug.
-          </p>
-          @if (sessions().length === 0) {
-            <p class="akd-muted">No tunnel open to this endpoint.</p>
-          } @else {
-            <table class="akd-table">
-              <thead>
-                <tr>
-                  <th>Who</th>
-                  <th>From</th>
-                  <th>Opened</th>
-                  <th>Authorized until</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (session of sessions(); track session.uuid) {
-                  <tr>
-                    <td>{{ session.user_email ?? 'API token' }}</td>
-                    <td class="akd-mono">{{ session.client_ip ?? '—' }}</td>
-                    <td>{{ session.started_at ?? session.created_at | date: 'short' }}</td>
-                    <td>
-                      {{
-                        session.authorized_until ? (session.authorized_until | date: 'short') : '—'
-                      }}
-                    </td>
-                    <td class="actions">
-                      <button
-                        class="akd-btn akd-btn--ghost"
-                        type="button"
-                        (click)="cut(session)"
-                        [disabled]="busy()"
-                      >
-                        Cut
-                      </button>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+            </button>
           }
-        </akd-card>
+        </nav>
 
-        <akd-card title="Access grants">
-          <p class="intro">
-            Who asked for access, why, and for how long. Revoking a live grant closes the window
-            <em>and</em> tears down the tunnels it opened.
-          </p>
-          @if (grants().length === 0) {
-            <p class="akd-muted">Nobody has requested access to this endpoint yet.</p>
-          } @else {
-            <table class="akd-table">
-              <thead>
-                <tr>
-                  <th>Who</th>
-                  <th>Reason</th>
-                  <th>Factor</th>
-                  <th>Requested</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (grant of grants(); track grant.uuid) {
-                  <tr>
-                    <td>{{ grant.user_email ?? '—' }}</td>
-                    <td>
-                      {{ grant.reason }}
-                      @if (grant.renewed) {
-                        <span class="akd-muted"> (renewed)</span>
+        @switch (tab()) {
+          @case ('settings') {
+            <akd-card title="Destination">
+              <form class="fields" (ngSubmit)="save()">
+                <p class="intro">
+                  Changing the address changes what your team can reach from
+                  <strong>{{ serverName() }}</strong> — it is audited as such.
+                </p>
+                <div class="row">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-name">Name</label>
+                    <input
+                      id="ep-name"
+                      name="name"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="name"
+                      [disabled]="busy()"
+                      required
+                    />
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-host">Host</label>
+                    <input
+                      id="ep-host"
+                      name="host"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="host"
+                      [disabled]="busy()"
+                      required
+                    />
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-port">Port</label>
+                    <input
+                      id="ep-port"
+                      name="port"
+                      type="number"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="port"
+                      [disabled]="busy()"
+                      required
+                    />
+                  </div>
+                </div>
+                <div class="akd-field">
+                  <label class="akd-field__label" for="ep-description">Description</label>
+                  <input
+                    id="ep-description"
+                    name="description"
+                    class="akd-input"
+                    placeholder="e.g. read replica of the billing database"
+                    [(ngModel)]="description"
+                    [disabled]="busy()"
+                  />
+                </div>
+                <div class="row">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-server">Egress server</label>
+                    <select
+                      id="ep-server"
+                      name="server"
+                      class="akd-input"
+                      [(ngModel)]="serverUuid"
+                      [disabled]="busy()"
+                      required
+                    >
+                      @for (server of servers(); track server.uuid) {
+                        <option [value]="server.uuid">{{ server.name }}</option>
                       }
-                    </td>
-                    <td>{{ grant.factor }}</td>
-                    <td>{{ grant.requested_at | date: 'short' }}</td>
-                    <td>
-                      @if (grant.revoked_at) {
-                        <span class="akd-badge">revoked</span>
-                      } @else if (isLive(grant)) {
-                        <span class="akd-badge akd-badge--ok">
-                          until {{ grant.expires_at | date: 'short' }}
-                        </span>
-                      } @else {
-                        <span class="akd-badge">expired</span>
+                    </select>
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-criticality">Access regime</label>
+                    <select
+                      id="ep-criticality"
+                      name="criticality"
+                      class="akd-input"
+                      [(ngModel)]="criticality"
+                      [disabled]="busy()"
+                    >
+                      <option value="sensitive">Sensitive — access must be requested</option>
+                      <option value="standard">Standard — open to anyone who may tunnel</option>
+                    </select>
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-window"
+                      >Longest access window (min)</label
+                    >
+                    <input
+                      id="ep-window"
+                      name="window"
+                      type="number"
+                      class="akd-input akd-input--mono"
+                      [(ngModel)]="maxGrantMinutes"
+                      [disabled]="busy() || criticality === 'standard'"
+                    />
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-project">Related project</label>
+                    <select
+                      id="ep-project"
+                      name="project"
+                      class="akd-input"
+                      [ngModel]="projectUuid"
+                      (ngModelChange)="onProjectChange($event)"
+                      [disabled]="busy()"
+                    >
+                      <option value="">Not related to a project</option>
+                      @for (project of projects(); track project.uuid) {
+                        <option [value]="project.uuid">{{ project.name }}</option>
                       }
-                    </td>
-                    <td class="actions">
-                      @if (!grant.revoked_at && isLive(grant)) {
-                        <button
-                          class="akd-btn akd-btn--ghost"
-                          type="button"
-                          (click)="revoke(grant)"
-                          [disabled]="busy()"
-                        >
-                          Revoke
-                        </button>
+                    </select>
+                    <span class="akd-field__hint">
+                      Descriptive only: it records what this destination is for, and is not an
+                      access boundary (ADR-047).
+                    </span>
+                  </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="ep-environment">…and environment</label>
+                    <select
+                      id="ep-environment"
+                      name="environment"
+                      class="akd-input"
+                      [(ngModel)]="environmentUuid"
+                      [disabled]="busy() || !projectUuid"
+                    >
+                      <option value="">Every environment of the project</option>
+                      @for (environment of environments(); track environment.uuid) {
+                        <option [value]="environment.uuid">{{ environment.name }}</option>
                       }
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
+                    </select>
+                  </div>
+                </div>
+                <div class="actions-row">
+                  <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
+                    {{ busy() ? 'Saving…' : 'Save changes' }}
+                  </button>
+                  @if (ep.criticality === 'sensitive') {
+                    <a
+                      class="akd-btn akd-btn--ghost"
+                      [routerLink]="['/external-endpoints', ep.uuid, 'request-access']"
+                    >
+                      Request access
+                    </a>
+                  }
+                </div>
+              </form>
+            </akd-card>
           }
-        </akd-card>
+          @case ('tunnels') {
+            <akd-card title="Open tunnels">
+              <p class="intro">
+                What is connected to this endpoint right now. Cutting one tells the developer why it
+                went away — a tunnel that dies in silence is read as a bug.
+              </p>
+              @if (sessions().length === 0) {
+                <p class="akd-muted">No tunnel open to this endpoint.</p>
+              } @else {
+                <table class="akd-table">
+                  <thead>
+                    <tr>
+                      <th>Who</th>
+                      <th>From</th>
+                      <th>Opened</th>
+                      <th>Authorized until</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (session of sessions(); track session.uuid) {
+                      <tr>
+                        <td>{{ session.user_email ?? 'API token' }}</td>
+                        <td class="akd-mono">{{ session.client_ip ?? '—' }}</td>
+                        <td>{{ session.started_at ?? session.created_at | date: 'short' }}</td>
+                        <td>
+                          {{
+                            session.authorized_until
+                              ? (session.authorized_until | date: 'short')
+                              : '—'
+                          }}
+                        </td>
+                        <td class="actions">
+                          <button
+                            class="akd-btn akd-btn--ghost"
+                            type="button"
+                            (click)="cut(session)"
+                            [disabled]="busy()"
+                          >
+                            Cut
+                          </button>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </akd-card>
+          }
+          @case ('grants') {
+            <akd-card title="Access grants">
+              <p class="intro">
+                Who asked for access, why, and for how long. Revoking a live grant closes the window
+                <em>and</em> tears down the tunnels it opened.
+              </p>
+              @if (grants().length === 0) {
+                <p class="akd-muted">Nobody has requested access to this endpoint yet.</p>
+              } @else {
+                <table class="akd-table">
+                  <thead>
+                    <tr>
+                      <th>Who</th>
+                      <th>Reason</th>
+                      <th>Factor</th>
+                      <th>Requested</th>
+                      <th>Status</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (grant of grants(); track grant.uuid) {
+                      <tr>
+                        <td>{{ grant.user_email ?? '—' }}</td>
+                        <td>
+                          {{ grant.reason }}
+                          @if (grant.renewed) {
+                            <span class="akd-muted"> (renewed)</span>
+                          }
+                        </td>
+                        <td>{{ grant.factor }}</td>
+                        <td>{{ grant.requested_at | date: 'short' }}</td>
+                        <td>
+                          @if (grant.revoked_at) {
+                            <span class="akd-badge">revoked</span>
+                          } @else if (isLive(grant)) {
+                            <span class="akd-badge akd-badge--ok">
+                              until {{ grant.expires_at | date: 'short' }}
+                            </span>
+                          } @else {
+                            <span class="akd-badge">expired</span>
+                          }
+                        </td>
+                        <td class="actions">
+                          @if (!grant.revoked_at && isLive(grant)) {
+                            <button
+                              class="akd-btn akd-btn--ghost"
+                              type="button"
+                              (click)="revoke(grant)"
+                              [disabled]="busy()"
+                            >
+                              Revoke
+                            </button>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              }
+            </akd-card>
+          }
+        }
       } @else if (!error()) {
         <p class="akd-muted">Loading…</p>
       }
@@ -349,10 +378,31 @@ type Environment = components['schemas']['Environment'];
 })
 export class ExternalEndpointDetailComponent {
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly confirm = inject(ConfirmService);
 
   /** Route parameter, bound by withComponentInputBinding(). */
   readonly uuid = input.required<string>();
+
+  protected readonly tabs = [
+    { id: 'settings', label: 'Settings' },
+    { id: 'tunnels', label: 'Open tunnels' },
+    { id: 'grants', label: 'Access grants' },
+  ] as const;
+  protected readonly tab = signal<TabId>('settings');
+  /** The active tab lives in the URL (?tab=…): a refresh keeps it, and
+   * back/forward walk the tabs. */
+  readonly tabParam = input<string | undefined>(undefined, { alias: 'tab' });
+
+  protected selectTab(id: TabId): void {
+    if (this.tab() === id) return;
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { tab: id === 'settings' ? null : id },
+      queryParamsHandling: 'merge',
+    });
+  }
 
   protected readonly endpoint = signal<ExternalEndpoint | null>(null);
   protected readonly grants = signal<ExternalEndpointGrant[]>([]);
@@ -383,6 +433,12 @@ export class ExternalEndpointDetailComponent {
     effect(() => {
       const uuid = this.uuid();
       untracked(() => void this.load(uuid));
+    });
+    // URL -> state: seeds the tab on load and follows back/forward.
+    effect(() => {
+      const wanted = this.tabParam();
+      const valid = this.tabs.find((t) => t.id === wanted)?.id;
+      this.tab.set(valid ?? 'settings');
     });
   }
 

@@ -39,6 +39,7 @@ type TabId =
   | 'proxy'
   | 'certificates'
   | 'settings'
+  | 'huggingface'
   | 'cleanup'
   | 'terminal'
   | 'danger';
@@ -51,6 +52,7 @@ const TABS: readonly { id: TabId; label: string }[] = [
   { id: 'proxy', label: 'Proxy' },
   { id: 'certificates', label: 'Certificates' },
   { id: 'settings', label: 'Settings' },
+  { id: 'huggingface', label: 'Hugging Face' },
   { id: 'cleanup', label: 'Cleanup' },
   { id: 'terminal', label: 'Terminal' },
   { id: 'danger', label: 'Danger' },
@@ -83,6 +85,17 @@ const TABS: readonly { id: TabId; label: string }[] = [
         @if (server(); as srv) {
           <akd-status-badge domain="resource" [state]="srv.status" />
           <span class="akd-mono faint">{{ srv.user }}&#64;{{ srv.host }}:{{ srv.port }}</span>
+          @if (srv.gpu_name) {
+            <!-- The ADR-079 fact, where the operator diagnoses: an absent
+                 badge after a validation means the probe saw nothing — the
+                 detect_gpu step of the validation job says exactly why. -->
+            <span class="akd-badge akd-badge--accent akd-badge--mono">
+              GPU {{ srv.gpu_name }}
+              @if (srv.gpu_memory_mb) {
+                · {{ srv.gpu_memory_mb }} MiB
+              }
+            </span>
+          }
         }
         <span class="grow"></span>
         <button
@@ -650,8 +663,8 @@ const TABS: readonly { id: TabId; label: string }[] = [
             @case ('settings') {
               <akd-card title="Settings">
                 <p class="akd-muted intro">
-                  Changing host, port or user puts the server back in <em>pending</em>: it must be
-                  validated again before anything deploys to it.
+                  Changing host, port, user or sudo escalation puts the server back in
+                  <em>pending</em>: it must be validated again before anything deploys to it.
                 </p>
                 <form class="form" (ngSubmit)="save()">
                   <div class="akd-field">
@@ -711,6 +724,46 @@ const TABS: readonly { id: TabId; label: string }[] = [
                       />
                     </div>
                   </div>
+                  <div class="akd-field">
+                    <label class="akd-field__label" for="sd-edge">Edge server</label>
+                    <div class="akd-select">
+                      <select
+                        id="sd-edge"
+                        name="edgeServer"
+                        class="akd-input"
+                        [(ngModel)]="edgeServerUuid"
+                        [disabled]="busy()"
+                      >
+                        <option value="">Serves its own routes (directly reachable)</option>
+                        @for (candidate of edgeCandidates(); track candidate.uuid) {
+                          <option [value]="candidate.uuid">{{ candidate.name }}</option>
+                        }
+                      </select>
+                    </div>
+                    <span class="akd-field__hint">
+                      For a server the internet cannot reach: the edge relays its public domains
+                      by TLS passthrough — certificates, access walls and noindex stay here. The
+                      edge must run a Traefik proxy and cannot itself relay through an edge.
+                    </span>
+                  </div>
+                  @if (user.trim() && user.trim() !== 'root') {
+                    <label class="akd-check">
+                      <input
+                        type="checkbox"
+                        name="useSudo"
+                        [(ngModel)]="useSudo"
+                        [disabled]="busy()"
+                      />
+                      Escalate remote commands with sudo
+                    </label>
+                    <span class="akd-field__hint">
+                      AkerDock signs in with an SSH key and has no password to type when sudo
+                      prompts, so the user needs a passwordless sudoers entry — on the server, run:
+                      <code>echo '{{ user.trim() }} ALL=(ALL) NOPASSWD: ALL' | sudo tee
+                        /etc/sudoers.d/90-akerdock</code>. Without sudo, the user must own
+                      <code>/var/lib/akerdock</code> and belong to the <code>docker</code> group.
+                    </span>
+                  }
                   <div>
                     <button
                       class="akd-btn akd-btn--primary"
@@ -721,6 +774,113 @@ const TABS: readonly { id: TabId; label: string }[] = [
                     </button>
                   </div>
                 </form>
+              </akd-card>
+            }
+
+            @case ('huggingface') {
+              <akd-card title="Hugging Face token">
+                <p class="akd-muted intro">
+                  Used by this server's model containers for gated downloads — it wins over the
+                  instance-wide token. Write-only: set, replace or clear; it is never shown again.
+                </p>
+                <form class="form" (ngSubmit)="saveHFToken()">
+                  <div class="row">
+                    <input
+                      name="hfToken"
+                      class="akd-input akd-input--mono grow"
+                      type="password"
+                      autocomplete="off"
+                      [placeholder]="srv.hf_token_set ? 'A token is stored — type to replace it' : 'hf_…'"
+                      [(ngModel)]="hfToken"
+                      [disabled]="busy()"
+                    />
+                    <button
+                      class="akd-btn akd-btn--primary"
+                      type="submit"
+                      [disabled]="busy() || !hfToken.trim()"
+                    >
+                      Save
+                    </button>
+                    @if (srv.hf_token_set) {
+                      <button
+                        class="akd-btn akd-btn--secondary"
+                        type="button"
+                        (click)="clearHFToken()"
+                        [disabled]="busy()"
+                      >
+                        Clear
+                      </button>
+                    }
+                  </div>
+                </form>
+              </akd-card>
+
+              <akd-card title="Weights cache">
+                <p class="akd-muted intro">
+                  The shared cache every model on this server reads — a stop or a delete never
+                  touches it, so reclaiming space is your explicit act here. A running model keeps
+                  serving from memory and re-downloads at its next start.
+                </p>
+                @if (hfCacheError(); as message) {
+                  <p class="akd-error" role="alert">{{ message }}</p>
+                  <button
+                    class="akd-btn akd-btn--secondary"
+                    type="button"
+                    (click)="loadHFCache()"
+                    [disabled]="busy()"
+                  >
+                    Retry
+                  </button>
+                } @else if (hfCache(); as cache) {
+                  @if (cache.data.length === 0) {
+                    <p class="akd-muted">The cache is empty.</p>
+                  } @else {
+                    <table class="akd-table">
+                      <caption class="sr-only">
+                        Cached model weights on this server, largest first
+                      </caption>
+                      <thead>
+                        <tr>
+                          <th scope="col">Model</th>
+                          <th scope="col">Size</th>
+                          <th scope="col"><span class="sr-only">Actions</span></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (entry of cache.data; track entry.model_id) {
+                          <tr>
+                            <td class="akd-mono">{{ entry.model_id }}</td>
+                            <td class="akd-mono">{{ entry.size_mb }} MiB</td>
+                            <td>
+                              <button
+                                class="akd-btn akd-btn--danger akd-btn--sm"
+                                type="button"
+                                (click)="deleteHFModel(entry.model_id)"
+                                [disabled]="busy()"
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                    <div class="row">
+                      <span class="akd-muted">Total: {{ cache.total_mb }} MiB</span>
+                      <span class="grow"></span>
+                      <button
+                        class="akd-btn akd-btn--danger"
+                        type="button"
+                        (click)="purgeHFCache()"
+                        [disabled]="busy()"
+                      >
+                        Empty the cache
+                      </button>
+                    </div>
+                  }
+                } @else {
+                  <p class="akd-muted">Reading the cache on the server…</p>
+                }
               </akd-card>
             }
 
@@ -1047,11 +1207,18 @@ export class ServerDetailComponent {
    * server is loaded every tab stays listed, so a deep link is not dropped. */
   protected readonly tabs = computed(() => {
     const srv = this.server();
-    return TABS.filter((t) => t.id !== 'proxy' || !srv?.is_build_server);
+    return TABS.filter(
+      (t) =>
+        (t.id !== 'proxy' || !srv?.is_build_server) &&
+        // The Hugging Face tab follows the GPU (ADR-081): the weights cache
+        // and the token only mean something on a server that serves models.
+        (t.id !== 'huggingface' || !!srv?.gpu_name),
+    );
   });
 
   protected selectTab(id: TabId): void {
     if (this.tab() === id) return;
+    if (id === 'huggingface') void this.loadHFCache();
     void this.router.navigate([], {
       relativeTo: this.activatedRoute,
       queryParams: { tab: id === 'overview' ? null : id },
@@ -1105,9 +1272,23 @@ export class ServerDetailComponent {
   protected host = '';
   protected port = 22;
   protected user = 'root';
+  protected useSudo = false;
+  protected edgeServerUuid = '';
   protected expiringDays: number | null = null;
 
   protected readonly dnsCredentials = signal<DnsCredential[]>([]);
+  // Eligible ADR-077 edges: another server of the team, running a Traefik,
+  // itself not behind an edge. The API re-checks; the filter only keeps the
+  // select honest.
+  protected readonly teamServers = signal<Server[]>([]);
+  protected readonly edgeCandidates = computed(() =>
+    this.teamServers().filter(
+      (candidate) =>
+        candidate.uuid !== this.uuid() &&
+        candidate.proxy_type !== 'none' &&
+        !candidate.edge_server_uuid,
+    ),
+  );
   protected proxyType: 'traefik' | 'none' = 'traefik';
   protected proxyHttpPort = 80;
   protected proxyHttpsPort = 443;
@@ -1133,6 +1314,14 @@ export class ServerDetailComponent {
     effect(() => {
       const wanted = this.tabParam();
       this.tab.set(this.tabs().find((t) => t.id === wanted)?.id ?? TABS[0].id);
+    });
+    // The HF cache is read lazily, whichever way the tab was reached — a
+    // click or a deep link — and only once per visit (ADR-081: the listing
+    // starts a one-shot container on the server).
+    effect(() => {
+      if (this.tab() === 'huggingface' && !this.hfCache()) {
+        untracked(() => void this.loadHFCache());
+      }
     });
   }
 
@@ -1214,6 +1403,95 @@ export class ServerDetailComponent {
     }
   }
 
+  // --- Hugging Face tab (ADR-081) ---------------------------------------
+  protected hfToken = '';
+  protected readonly hfCache = signal<{
+    data: { model_id: string; size_mb: number }[];
+    total_mb: number;
+  } | null>(null);
+  protected readonly hfCacheError = signal<string | null>(null);
+
+  protected async loadHFCache(): Promise<void> {
+    this.hfCacheError.set(null);
+    this.hfCache.set(null);
+    try {
+      this.hfCache.set(await this.api.client().listServerHFCache(this.uuid()));
+    } catch (err) {
+      this.hfCacheError.set(ApiService.describe(err));
+    }
+  }
+
+  protected async saveHFToken(): Promise<void> {
+    if (!this.hfToken.trim()) return;
+    this.busy.set(true);
+    try {
+      await this.api.client().setServerHFToken(this.uuid(), { token: this.hfToken.trim() });
+      this.hfToken = '';
+      this.notice.set('Token stored — this server now authenticates its downloads with it.');
+      await this.refresh();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async clearHFToken(): Promise<void> {
+    this.busy.set(true);
+    try {
+      await this.api.client().setServerHFToken(this.uuid(), { token: '' });
+      this.notice.set('Token cleared — downloads fall back to the instance token, if any.');
+      await this.refresh();
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async deleteHFModel(modelId: string): Promise<void> {
+    if (
+      !(await this.confirm.ask({
+        title: 'Delete cached weights',
+        message: `Delete the cached weights of ${modelId}? A model using them re-downloads at its next start.`,
+        confirmLabel: 'Delete',
+      }))
+    ) {
+      return;
+    }
+    this.busy.set(true);
+    try {
+      await this.api.client().deleteServerHFCache(this.uuid(), { model_id: modelId });
+      await this.loadHFCache();
+    } catch (err) {
+      this.hfCacheError.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
+  protected async purgeHFCache(): Promise<void> {
+    if (
+      !(await this.confirm.ask({
+        title: 'Empty the weights cache',
+        message:
+          'Delete every cached model on this server? Each model re-downloads its weights at its next start.',
+        confirmLabel: 'Empty the cache',
+      }))
+    ) {
+      return;
+    }
+    this.busy.set(true);
+    try {
+      await this.api.client().deleteServerHFCache(this.uuid(), { all: true });
+      await this.loadHFCache();
+    } catch (err) {
+      this.hfCacheError.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
+  }
+
   private async load(uuid: string): Promise<void> {
     this.loading.set(true);
     try {
@@ -1228,13 +1506,17 @@ export class ServerDetailComponent {
       this.resources.set(resources);
       this.domains.set(domains.data);
       this.certificates.set(certificates);
-      // Feeds the DNS-01 select of the proxy settings; decorative, must not
-      // block the page.
+      // Feeds the DNS-01 select of the proxy settings and the edge-server
+      // select of the settings tab; decorative, must not block the page.
       try {
-        const creds = await fetchAll((cursor) => client.listDnsCredentials({ limit: 100, cursor }));
+        const [creds, servers] = await Promise.all([
+          fetchAll((cursor) => client.listDnsCredentials({ limit: 100, cursor })),
+          fetchAll((cursor) => client.listServers({ limit: 100, cursor })),
+        ]);
         this.dnsCredentials.set(creds);
+        this.teamServers.set(servers);
       } catch {
-        /* the select simply stays empty */
+        /* the selects simply stay empty */
       }
     } catch (err) {
       this.error.set(ApiService.describe(err));
@@ -1250,6 +1532,8 @@ export class ServerDetailComponent {
     this.host = server.host;
     this.port = server.port;
     this.user = server.user;
+    this.useSudo = server.use_sudo ?? false;
+    this.edgeServerUuid = server.edge_server_uuid ?? '';
     this.proxyType = (server.proxy_type as 'traefik' | 'none' | undefined) ?? 'traefik';
     this.proxyHttpPort = server.proxy_http_port ?? 80;
     this.proxyHttpsPort = server.proxy_https_port ?? 443;
@@ -1301,6 +1585,8 @@ export class ServerDetailComponent {
         host: this.host.trim(),
         port: this.port,
         user: this.user.trim(),
+        use_sudo: this.user.trim() !== 'root' && this.useSudo,
+        edge_server_uuid: this.edgeServerUuid,
       });
       this.setServer(updated);
       this.notice.set('Settings saved.');

@@ -87,7 +87,9 @@ func (h *ProxyLifecycle) Execute(ctx context.Context, job store.Job, rec *queue.
 			return nil, err
 		}
 		defer func() { _ = client.Close() }()
-		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops, server, false, h.ControlPlanePort); err != nil {
+		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops,
+			&EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+			server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, err.Error())
 			_ = h.Store.SetProxyObservedStatus(ctx, store.SetProxyObservedStatusParams{ID: server.ID, ProxyObservedStatus: store.ResourceObservedStatusUnhealthy})
 			return nil, err

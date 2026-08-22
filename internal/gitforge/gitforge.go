@@ -17,6 +17,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/deepteams/akerdock/internal/safedial"
 )
 
 // StatusState is the normalized preview state carried to a commit status.
@@ -83,7 +86,11 @@ func doJSON(ctx context.Context, client *http.Client, method, url string, header
 		req.Header.Set(k, v)
 	}
 	if client == nil {
-		client = http.DefaultClient
+		// A forge BaseURL is team configuration, so it is in the SSRF policy
+		// (threat model AB-10): the default client refuses non-public
+		// destinations. A forge that legitimately lives on a private network
+		// must be allowed by injecting HTTPClient, not by weakening this.
+		client = safedial.HTTPClient(10 * time.Second)
 	}
 	resp, err := client.Do(req)
 	if err != nil {

@@ -364,6 +364,10 @@ func prevjobsGithubServer(t *testing.T, fail map[string]int) *httptest.Server {
 		}
 	}))
 	t.Cleanup(srv.Close)
+	// The fake forge lives on loopback, which the production default (safedial)
+	// refuses — route the notifier through the test server's own client.
+	forgeHTTPClient = srv.Client()
+	t.Cleanup(func() { forgeHTTPClient = nil })
 	return srv
 }
 
@@ -382,6 +386,10 @@ func prevjobsGitlabServer(t *testing.T, accessLevel int) *httptest.Server {
 		}
 	}))
 	t.Cleanup(srv.Close)
+	// The fake forge lives on loopback, which the production default (safedial)
+	// refuses — route the notifier through the test server's own client.
+	forgeHTTPClient = srv.Client()
+	t.Cleanup(func() { forgeHTTPClient = nil })
 	return srv
 }
 

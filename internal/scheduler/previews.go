@@ -16,7 +16,6 @@ import (
 	"github.com/deepteams/akerdock/internal/jobs"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/serverdial"
-	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -453,8 +452,9 @@ func (w *agentScan) client(server store.Server) remoteClient {
 	if w.s.dialSSH != nil {
 		c, err = w.s.dialSSH(w.ctx, server, pem)
 	} else {
-		c, err = sshexec.Dial(w.ctx, server.Host, int(server.Port), server.SshUser, pem,
-			time.Duration(server.SshTimeoutSeconds)*time.Second, serverdial.HostKey(server))
+		// DialWithKey, not a bare Dial: it carries the server's sudo policy
+		// (ADR-076) along with the pinned host key.
+		c, err = serverdial.DialWithKey(w.ctx, server, pem)
 	}
 	if err != nil {
 		return fail("ssh dial", err)

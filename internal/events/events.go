@@ -7,6 +7,7 @@ package events
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -32,6 +33,16 @@ type Broker struct {
 	subs map[string]map[chan Event]struct{} // team uuid → subscribers
 }
 
+// subscriberTeamCap bounds concurrent SSE streams per team — the missing cap
+// called out by the threat model (§3.2 D), sized so no single team can absorb
+// the 500-stream instance target of §22.2. Per instance by construction: the
+// broker is in-process, like the rate limiter (ADR-002, no Redis).
+const subscriberTeamCap = 50
+
+// ErrTeamStreamLimit is returned by Subscribe when the team already holds
+// subscriberTeamCap streams on this instance.
+var ErrTeamStreamLimit = fmt.Errorf("team already holds %d event streams", subscriberTeamCap)
+
 // NewBroker builds an empty broker.
 func NewBroker() *Broker {
 	return &Broker{subs: map[string]map[chan Event]struct{}{}}
@@ -39,9 +50,13 @@ func NewBroker() *Broker {
 
 // Subscribe registers a subscriber for a team; the returned cancel func
 // must be called when the stream ends.
-func (b *Broker) Subscribe(teamUUID string) (<-chan Event, func()) {
+func (b *Broker) Subscribe(teamUUID string) (<-chan Event, func(), error) {
 	ch := make(chan Event, 32)
 	b.mu.Lock()
+	if len(b.subs[teamUUID]) >= subscriberTeamCap {
+		b.mu.Unlock()
+		return nil, nil, ErrTeamStreamLimit
+	}
 	if b.subs[teamUUID] == nil {
 		b.subs[teamUUID] = map[chan Event]struct{}{}
 	}
@@ -56,7 +71,7 @@ func (b *Broker) Subscribe(teamUUID string) (<-chan Event, func()) {
 		}
 		b.mu.Unlock()
 		close(ch)
-	}
+	}, nil
 }
 
 func (b *Broker) publish(teamUUID string, ev Event) {

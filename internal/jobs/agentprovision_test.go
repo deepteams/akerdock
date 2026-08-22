@@ -180,6 +180,35 @@ func TestAgentEnsureCommandAgentEnv(t *testing.T) {
 	}
 }
 
+// The ADR-078 prelude: with a known source commit, an absent image is BUILT
+// on the server from the public repository at that commit — natively for the
+// server's CPU — and a failed build stops the whole ensure with the build's
+// own exit. Without a commit (registry install, dirty tree), the command is
+// exactly what it always was: `docker run` pulls, or fails honestly.
+func TestAgentEnsureCommandBuildsFromSourceWhenKnown(t *testing.T) {
+	restoreRepo, restoreCommit := agentSource.Repo, agentSource.Commit
+	t.Cleanup(func() { SetAgentSource(restoreRepo, restoreCommit) })
+
+	SetAgentSource("https://github.com/deepteams/akerdock.git", "0123abc")
+	with := AgentEnsureCommand("net", "akerdock:v1.2.3", AgentEnv{})
+	for _, want := range []string{
+		"docker image inspect akerdock:v1.2.3 >/dev/null 2>&1 || docker build -t akerdock:v1.2.3",
+		"--build-arg VERSION='v1.2.3'",
+		"--build-arg IMAGE='akerdock:v1.2.3'",
+		"--build-arg COMMIT='0123abc'",
+		"'https://github.com/deepteams/akerdock.git#0123abc' || exit $?; ",
+	} {
+		if !strings.Contains(with, want) {
+			t.Fatalf("source prelude misses %q:\n%s", want, with)
+		}
+	}
+
+	SetAgentSource("https://github.com/deepteams/akerdock.git", "")
+	if noCommit := AgentEnsureCommand("net", "akerdock:v1.2.3", AgentEnv{}); strings.Contains(noCommit, "docker build") {
+		t.Fatalf("a build with no commit must not invent a source to build from:\n%s", noCommit)
+	}
+}
+
 func TestPointRouteGroupAtWaker(t *testing.T) {
 	rg := proxy.RouteGroup{
 		AppUUID:  "pv-1",

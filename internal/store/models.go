@@ -689,6 +689,90 @@ func (ns NullGitSourceKind) Value() (driver.Value, error) {
 	return string(ns.GitSourceKind), nil
 }
 
+type InferenceEngine string
+
+const (
+	InferenceEngineVllm   InferenceEngine = "vllm"
+	InferenceEngineSglang InferenceEngine = "sglang"
+)
+
+func (e *InferenceEngine) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InferenceEngine(s)
+	case string:
+		*e = InferenceEngine(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InferenceEngine: %T", src)
+	}
+	return nil
+}
+
+type NullInferenceEngine struct {
+	InferenceEngine InferenceEngine
+	Valid           bool // Valid is true if InferenceEngine is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInferenceEngine) Scan(value interface{}) error {
+	if value == nil {
+		ns.InferenceEngine, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InferenceEngine.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInferenceEngine) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InferenceEngine), nil
+}
+
+type InferenceModality string
+
+const (
+	InferenceModalityText InferenceModality = "text"
+	InferenceModalityOmni InferenceModality = "omni"
+)
+
+func (e *InferenceModality) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InferenceModality(s)
+	case string:
+		*e = InferenceModality(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InferenceModality: %T", src)
+	}
+	return nil
+}
+
+type NullInferenceModality struct {
+	InferenceModality InferenceModality
+	Valid             bool // Valid is true if InferenceModality is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInferenceModality) Scan(value interface{}) error {
+	if value == nil {
+		ns.InferenceModality, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InferenceModality.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInferenceModality) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InferenceModality), nil
+}
+
 type IngressAccess string
 
 const (
@@ -1448,6 +1532,7 @@ const (
 	ResourceTypeApplication ResourceType = "application"
 	ResourceTypeDatabase    ResourceType = "database"
 	ResourceTypeService     ResourceType = "service"
+	ResourceTypeModel       ResourceType = "model"
 )
 
 func (e *ResourceType) Scan(src interface{}) error {
@@ -2510,6 +2595,7 @@ type Domain struct {
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
 	IngressEndpointID  *int64
+	ModelID            *int64
 }
 
 type Environment struct {
@@ -2821,6 +2907,27 @@ type MfaFactor struct {
 	LastUsedAt         pgtype.Timestamptz
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+}
+
+type Model struct {
+	ID                 int64
+	Engine             InferenceEngine
+	ModelID            string
+	ServedModelName    *string
+	Quantization       *string
+	MaxModelLen        *int32
+	TensorParallelSize int32
+	MemoryFraction     *float64
+	Image              *string
+	ImageTag           *string
+	EngineFlags        []byte
+	ApiKeyEnc          []byte
+	ShmSizeMb          *int32
+	PublishedPort      int32
+	ServerID           int64
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+	Modality           InferenceModality
 }
 
 type NotificationChannel struct {
@@ -3281,6 +3388,10 @@ type Server struct {
 	DnsCredentialID              *int64
 	CleanupNextRunAt             pgtype.Timestamptz
 	CleanupLastRunAt             pgtype.Timestamptz
+	EdgeServerID                 *int64
+	GpuName                      *string
+	GpuMemoryMb                  *int32
+	HfTokenEnc                   []byte
 }
 
 type Service struct {

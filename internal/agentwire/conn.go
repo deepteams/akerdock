@@ -75,6 +75,32 @@ func (c *Conn) WriteFrame(f Frame) error {
 	return c.conn.Write(ioCtx, websocket.MessageText, data)
 }
 
+// Keepalive pings the peer every interval and returns as soon as one ping
+// goes unanswered within timeout, or when the connection ends. A process that
+// vanished — a machine powered off, a container killed — never closes its
+// socket, and a command already in flight on it waits on kernel retransmission
+// rather than on anything this code can observe. The caller ends the
+// connection's lifetime on return, which is what turns that silence into an
+// error the job above can act on. The agent channel has carried this since
+// ADR-041 §2; the relay is the same problem one hop further out.
+func (c *Conn) Keepalive(interval, timeout time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-t.C:
+			pingCtx, cancel := context.WithTimeout(c.ctx, timeout)
+			err := c.conn.Ping(pingCtx)
+			cancel()
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
 func (c *Conn) start(stream bool) (int64, *call) {
 	cl := &call{res: make(chan Result, 1)}
 	if stream {

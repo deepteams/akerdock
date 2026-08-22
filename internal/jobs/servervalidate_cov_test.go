@@ -19,6 +19,7 @@ import (
 
 	dockerfake "github.com/deepteams/akerdock/internal/dockerruntime/fake"
 	hostfake "github.com/deepteams/akerdock/internal/hostops/fake"
+	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
 	"github.com/deepteams/akerdock/internal/sshexec"
 	"github.com/deepteams/akerdock/internal/sshkey"
@@ -94,6 +95,66 @@ func servalcovValidate(t *testing.T, respond func(string) (string, uint32)) (*Se
 		Docker: fixedSource{rt: &dockerfake.Runtime{}}, HostOps: fixedHost{ops: &hostfake.Ops{}},
 	}
 	return h, q, db
+}
+
+// The ADR-079 probe, on its three worlds: a schedulable GPU (card + NVIDIA
+// runtime), a card the daemon cannot use (recorded GPU-less, the fix named
+// by the caller), and the ordinary GPU-less host.
+func TestDetectGPU(t *testing.T) {
+	ctx := context.Background()
+
+	probe := func(t *testing.T, smi, daemonSignals string) gpuFacts {
+		t.Helper()
+		client := servalcovDial(t, func(command string) (string, uint32) {
+			switch {
+			case strings.Contains(command, "nvidia-smi --query-gpu"):
+				return smi, 0
+			case strings.Contains(command, "nvidia-container-runtime-hook"):
+				// The combined daemon probe: whatever mechanisms answered.
+				return daemonSignals, 0
+			}
+			return "", 0
+		})
+		facts, err := detectGPU(ctx, client)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return facts
+	}
+
+	// Any ONE of the three delivery mechanisms suffices: the daemon.json
+	// runtime entry, the toolkit hook `--gpus` rides, or a CDI spec (Docker
+	// 28+). Requiring the first alone rejected working DGX setups.
+	for _, signal := range []string{"runtime\n", "hook\n", "cdi\n", "runtime\nhook\ncdi\n"} {
+		t.Run("a schedulable GPU is recorded when the daemon signals "+strings.TrimSpace(signal), func(t *testing.T) {
+			facts := probe(t, "NVIDIA GB10, 122880\n", signal)
+			if facts.name == nil || *facts.name != "NVIDIA GB10" ||
+				facts.memoryMB == nil || *facts.memoryMB != 122880 || facts.runtimeMissing {
+				t.Fatalf("facts = %+v", facts)
+			}
+		})
+	}
+
+	t.Run("a card Docker cannot deliver is GPU-less to the platform", func(t *testing.T) {
+		facts := probe(t, "NVIDIA GB10, 122880\n", "")
+		if facts.name != nil || !facts.runtimeMissing {
+			t.Fatalf("facts = %+v", facts)
+		}
+	})
+
+	t.Run("a unified-memory driver reporting [N/A] keeps the name", func(t *testing.T) {
+		facts := probe(t, "NVIDIA GB10, [N/A]\n", "hook\n")
+		if facts.name == nil || *facts.name != "NVIDIA GB10" || facts.memoryMB != nil {
+			t.Fatalf("facts = %+v", facts)
+		}
+	})
+
+	t.Run("no nvidia-smi means no GPU, cleanly", func(t *testing.T) {
+		facts := probe(t, "", "")
+		if facts.name != nil || facts.runtimeMissing {
+			t.Fatalf("facts = %+v", facts)
+		}
+	})
 }
 
 // One validation attempt end to end, and the rungs it falls off. The server
@@ -179,6 +240,56 @@ func TestServalcovExecute(t *testing.T) {
 		})
 		_, err := h.Execute(ctx, job, queue.NewStepRecorder(q, job))
 		if err == nil || !strings.Contains(err.Error(), "snap") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("a use_sudo server wraps every command in sudo -n", func(t *testing.T) {
+		// The fake row fills every bool column true, so this server IS
+		// use_sudo: the whole validation must ride the ADR-076 escalation.
+		log := &deployrunCommandLog{}
+		h, q, _ := servalcovValidate(t, func(command string) (string, uint32) {
+			log.record(command)
+			return servalcovHost(command)
+		})
+		if _, err := h.Execute(ctx, job, queue.NewStepRecorder(q, job)); err != nil {
+			t.Fatal(err)
+		}
+		if len(log.matching("LC_ALL=C sudo -n -- sh -c '")) != len(log.matching()) {
+			t.Fatalf("some commands escaped the sudo wrap: %q", log.matching())
+		}
+		if len(log.matching("sudo -n -- sh -c 'true'")) == 0 {
+			t.Fatal("the check_sudo probe never ran")
+		}
+	})
+
+	t.Run("without use_sudo no command is escalated", func(t *testing.T) {
+		log := &deployrunCommandLog{}
+		h, q, db := servalcovValidate(t, func(command string) (string, uint32) {
+			log.record(command)
+			return servalcovHost(command)
+		})
+		db.bools["GetServerByID"] = false
+		// All-false bools also clear is_build_server, which would send the
+		// validation into the proxy bootstrap; route nothing instead.
+		db.enums["ProxyType"] = "none"
+		if _, err := h.Execute(ctx, job, queue.NewStepRecorder(q, job)); err != nil {
+			t.Fatal(err)
+		}
+		if wrapped := log.matching("sudo -n"); len(wrapped) != 0 {
+			t.Fatalf("a non-sudo server saw escalated commands: %q", wrapped)
+		}
+	})
+
+	t.Run("a use_sudo server that cannot escalate fails its own step", func(t *testing.T) {
+		h, q, _ := servalcovValidate(t, func(command string) (string, uint32) {
+			if strings.Contains(command, "sudo -n -- sh -c 'true'") {
+				return "", 1
+			}
+			return servalcovHost(command)
+		})
+		_, err := h.Execute(ctx, job, queue.NewStepRecorder(q, job))
+		if err == nil || !strings.Contains(err.Error(), "NOPASSWD") {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -416,6 +527,44 @@ func TestServalcovProvisionAgent(t *testing.T) {
 		})
 		_, _, err := h.provisionAgent(ctx, client, server)
 		if err == nil || !strings.Contains(err.Error(), "destination network") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("an unpullable image names the seed remediation", func(t *testing.T) {
+		// The source-only install case (ADR-078): the tag lives only in the
+		// instance host's daemon, the server's docker run tries a registry
+		// pull that can only fail — the error must say what to run, where.
+		h, _ := enrolled(t)
+		client := servalcovDial(t, func(command string) (string, uint32) {
+			if strings.Contains(command, "docker run -d --name "+proxy.AgentContainerName) {
+				return "docker: Error response from daemon: pull access denied for akerdock", 125
+			}
+			return servalcovOK(command)
+		})
+		_, _, err := h.provisionAgent(ctx, client, server)
+		if err == nil || !strings.Contains(err.Error(), "install.sh seed") || !strings.Contains(err.Error(), "akerdock:unit") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("an unpullable image with a known commit asks whether it is pushed", func(t *testing.T) {
+		// The nominal ADR-078 lane: the server builds the image from the
+		// public repository at the instance's commit; the one way that fails
+		// on a healthy server is a commit the repository does not hold yet.
+		restoreRepo, restoreCommit := agentSource.Repo, agentSource.Commit
+		t.Cleanup(func() { SetAgentSource(restoreRepo, restoreCommit) })
+		SetAgentSource("https://github.com/deepteams/akerdock.git", "0123abc")
+		h, _ := enrolled(t)
+		client := servalcovDial(t, func(command string) (string, uint32) {
+			if strings.Contains(command, "docker build") {
+				return "fatal: could not find remote ref 0123abc", 128
+			}
+			return servalcovOK(command)
+		})
+		_, _, err := h.provisionAgent(ctx, client, server)
+		if err == nil || !strings.Contains(err.Error(), "is that commit pushed") ||
+			!strings.Contains(err.Error(), "0123abc") {
 			t.Fatalf("err = %v", err)
 		}
 	})

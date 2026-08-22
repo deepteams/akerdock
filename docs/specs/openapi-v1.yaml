@@ -152,6 +152,8 @@ tags:
     description: Crons running a command inside a resource's container.
   - name: Databases
     description: Managed databases (v1 — PostgreSQL only).
+  - name: Models
+    description: Inference models — vLLM and SGLang on a GPU server (ADR-080).
   - name: Backups
     description: Backup plans, runs and restore.
   - name: Jobs
@@ -7027,6 +7029,700 @@ paths:
 
   # ---------------------------------------------------------------------------
   # Backups of compose stacks' internal databases (compose-spec §10)
+  /servers/{server_uuid}/hf-token:
+    parameters:
+      - $ref: "#/components/parameters/ServerUuid"
+    put:
+      tags: [Servers]
+      operationId: setServerHFToken
+      summary: Set the server's Hugging Face token
+      description: >-
+        Write-only (ADR-081, the ADR-075 stance): the token is enveloped and
+        never read back — the dashboard only learns that one is stored. An
+        empty token clears it. For this server's model containers it wins
+        over the instance-wide AKERDOCK_HF_TOKEN.
+      x-required-permission: servers:manage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+                  description: The HF token; empty clears the stored one.
+      responses:
+        "204":
+          description: Stored (or cleared).
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /servers/{server_uuid}/hf-cache:
+    parameters:
+      - $ref: "#/components/parameters/ServerUuid"
+    get:
+      tags: [Servers]
+      operationId: listServerHFCache
+      summary: The server's Hugging Face weights cache
+      description: >-
+        The contents of the shared cache volume (ADR-080 §4), by model, with
+        sizes — read through a typed one-shot on the server (ADR-081). The
+        server's agent must be connected.
+      x-required-permission: servers:read
+      responses:
+        "200":
+          description: Cache contents.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, total_mb]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [model_id, size_mb]
+                      properties:
+                        model_id:
+                          type: string
+                        size_mb:
+                          type: integer
+                  total_mb:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [Servers]
+      operationId: deleteServerHFCache
+      summary: Delete one model's weights, or the whole cache
+      description: >-
+        Explicit space reclamation (ADR-081): `model_id` removes one model's
+        weights, `all=true` empties the cache. Exactly one of the two is
+        required. A running model keeps serving from memory and re-downloads
+        at its next start.
+      x-required-permission: servers:maintain
+      parameters:
+        - name: model_id
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: all
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "204":
+          description: Deleted.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  # Models — first-class inference resources (ADR-080): vLLM and SGLang on a
+  # GPU server observed by validation (ADR-079). The serve command is a
+  # first-class representation: exported by the deployment's own renderer,
+  # imported by paste, round-trip pinned as the identity.
+  /models:
+    get:
+      tags: [Models]
+      operationId: listModels
+      summary: List models (team-wide)
+      description: >-
+        The transverse view of the Models section (ADR-080 §6): every model
+        of the team with its server, GPU and status.
+      x-required-permission: models:read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page of models.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Model"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Models]
+      operationId: createModel
+      summary: Create a model
+      description: >-
+        Creates an inference model resource (ADR-080). Placement requires a
+        server with an observed GPU (ADR-079); the API key is generated and
+        enveloped. Creation performs no start unless `instant_start=true`.
+      x-required-permission: models:create
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelCreate"
+      responses:
+        "201":
+          description: Model created.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/search:
+    get:
+      tags: [Models]
+      operationId: searchModelHub
+      summary: Search the Hugging Face Hub
+      description: >-
+        Live model search proxied by the control plane (ADR-080 §3): fixed
+        host, text-generation models, the instance's HF token applied for
+        gated models. Results fill the model_id field; they never constrain
+        it. An offline instance answers an empty page.
+      x-required-permission: models:read
+      parameters:
+        - name: q
+          in: query
+          # Optional at the contract level so an anonymous call is refused by
+          # AUTH (401), never by the parameter binder (400) — the handler
+          # enforces the two-character minimum itself.
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Hub matches (best effort).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/HubModel"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/preview-command:
+    post:
+      tags: [Models]
+      operationId: previewModelCommand
+      summary: Render a configuration into its serve command
+      description: >-
+        The form's live preview (ADR-080 §3bis): THE renderer, on a
+        configuration that does not exist yet — never a UI approximation.
+        The key is always masked here (no model, no key). Pure function.
+      x-required-permission: models:read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelCommandPreviewRequest"
+      responses:
+        "200":
+          description: The rendered command, masked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelCommand"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/parse-command:
+    post:
+      tags: [Models]
+      operationId: parseModelCommand
+      summary: Parse a serve command into a configuration
+      description: >-
+        The import half of ADR-080 §3bis: a pasted `vllm serve` /
+        `sglang launch_server` command becomes the two-tier configuration.
+        Reserved flags are dropped with a notice; nothing else is ever
+        silently discarded. Pure function — nothing is persisted.
+      x-required-permission: models:read
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [command]
+              properties:
+                command:
+                  type: string
+      responses:
+        "200":
+          description: Parsed configuration and notices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelParseResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    get:
+      tags: [Models]
+      operationId: getModel
+      summary: Model detail
+      x-required-permission: models:read
+      responses:
+        "200":
+          description: The model.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      tags: [Models]
+      operationId: updateModel
+      summary: Update a model
+      description: >-
+        Engine, server and port are immutable. Parameter changes take effect
+        at the next start — serve flags are read once, at process start
+        (ADR-080 §5).
+      x-required-permission: models:update
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ModelUpdate"
+      responses:
+        "200":
+          description: Updated model.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Model"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    delete:
+      tags: [Models]
+      operationId: deleteModel
+      summary: Delete a model
+      description: >-
+        Removes the container. The server-scoped HF cache is untouched —
+        weights are shared across models (ADR-080 §4).
+      x-required-permission: models:delete
+      responses:
+        "202":
+          description: Deletion accepted — track the job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/command:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    get:
+      tags: [Models]
+      operationId: getModelCommand
+      summary: The rendered serve command
+      description: >-
+        The export half of ADR-080 §3bis — the deployment's own renderer, in
+        the human form (`vllm serve …`). The API key is masked unless
+        `reveal=true` AND the caller holds models:credentials (audited).
+      x-required-permission: models:read
+      parameters:
+        - name: reveal
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: The command.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelCommand"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/credentials:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    get:
+      tags: [Models]
+      operationId: getModelCredentials
+      summary: The endpoint API key
+      description: >-
+        The managed key (ADR-080 §2), readable because being put into a
+        client's configuration is its purpose — the databases-credentials
+        precedent, audited on every read.
+      x-required-permission: models:credentials
+      responses:
+        "200":
+          description: Endpoint and key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModelCredentials"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/envs:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    get:
+      tags: [Models]
+      operationId: listModelEnvs
+      summary: List the model's environment variables
+      description: >-
+        The same variable machinery every resource uses (ADR-080 §1) —
+        secrets enveloped, values redacted without read:sensitive. They reach
+        the engine container's environment at the next start.
+      x-required-permission: secrets:read
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Page of variables.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/EnvironmentVariable"
+                  next_cursor:
+                    $ref: "#/components/schemas/NextCursor"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      tags: [Models]
+      operationId: createModelEnv
+      summary: Add an environment variable to the model
+      x-required-permission: secrets:write
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnvironmentVariableCreate"
+      responses:
+        "201":
+          description: Variable created — applied at the next start.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvironmentVariable"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/envs/{env_uuid}:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+      - $ref: "#/components/parameters/EnvUuid"
+    delete:
+      tags: [Models]
+      operationId: deleteModelEnv
+      summary: Delete an environment variable of the model
+      x-required-permission: secrets:write
+      responses:
+        "204":
+          description: Deleted — applied at the next start.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/logs:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    get:
+      tags: [Models]
+      operationId: getModelLogs
+      summary: The model container's runtime logs
+      description: >-
+        The last lines of the engine container, read through the agent
+        channel and never stored — where the weight download and the engine
+        startup actually narrate themselves. Poll it while a start job runs.
+      x-required-permission: logs:read
+      parameters:
+        - name: lines
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 2000
+      responses:
+        "200":
+          description: Log lines.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/LogLine"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/start:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    post:
+      tags: [Models]
+      operationId: startModel
+      summary: Start a model
+      description: >-
+        Starting while other models run on the same GPU server sums their
+        declared `memory_fraction` with this one's (ADR-082): within the card's
+        budget the start simply proceeds. Over it, 409 `gpu_busy` states the
+        arithmetic — every running model with its fraction, and the total — and
+        two ways past it: `swap=true` stops those models first and starts this
+        one in a single ordered job, `force=true` starts it alongside them. The
+        two are mutually exclusive; sending both is refused. A model that
+        declares no fraction counts as the engines' own default, 0.9.
+      x-required-permission: models:lifecycle
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                swap:
+                  type: boolean
+                  description: >-
+                    Stop the running models of the same server first, inside
+                    the same job.
+                force:
+                  type: boolean
+                  description: >-
+                    Start alongside the running models despite the declared
+                    fractions not fitting. The operator takes the outcome — at
+                    worst an out-of-memory failure at load time.
+      responses:
+        "202":
+          description: Start accepted — track the job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/stop:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    post:
+      tags: [Models]
+      operationId: stopModel
+      summary: Stop a model
+      description: >-
+        An explicit stop is a state, never a defect (ADR-080 §5): nothing
+        restarts a stopped model behind the operator's back, and the weights
+        stay in the server-scoped cache for the resume.
+      x-required-permission: models:lifecycle
+      responses:
+        "202":
+          description: Stop accepted — track the job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /models/{model_uuid}/restart:
+    parameters:
+      - $ref: "#/components/parameters/ModelUuid"
+    post:
+      tags: [Models]
+      operationId: restartModel
+      summary: Restart a model
+      x-required-permission: models:lifecycle
+      responses:
+        "202":
+          description: Restart accepted — track the job.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobAccepted"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
   # Exact mirror of the database operations: the target is a service_component
   # classified as a database by image detection. PostgreSQL only in v1 — an
   # unsupported engine is rejected with 422 at creation, never accepted and
@@ -7810,6 +8506,46 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /jobs/{job_uuid}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/JobUuid"
+    post:
+      tags: [Jobs]
+      operationId: cancelJob
+      summary: Cancel a job
+      description: >-
+        Cancels a `scheduled`, `queued` or `retry_wait` job outright — the
+        enqueue you regret (200). A job already leased or running is asked to
+        stop instead (202): the deployment and model families poll the request
+        at their checkpoints and compensate on the way out, so the cancel is
+        acknowledged here and observed on the job itself. A family without a
+        checkpoint is refused (409) rather than left half-mutated.
+      x-required-permission: jobs:manage
+      responses:
+        "200":
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "202":
+          description: >-
+            Cancellation requested — the job stops at its next checkpoint.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -8821,6 +9557,13 @@ components:
       in: path
       required: true
       description: UUID of the database.
+      schema:
+        type: string
+    ModelUuid:
+      name: model_uuid
+      in: path
+      required: true
+      description: UUID of the model.
       schema:
         type: string
     BackupPlanUuid:
@@ -11561,6 +12304,400 @@ components:
           readOnly: true
 
     # --- Servers -------------------------------------------------------------
+    EngineFlag:
+      type: object
+      description: >-
+        One tier-2 entry (ADR-080 §1): an upstream engine flag preserved
+        verbatim, in the operator's order. No value means a boolean flag.
+        Reserved flags (--host, --port, --api-key, --download-dir,
+        --hf-token), the invocation markers the form carries as a field
+        (--omni, ADR-083) and the typed knobs' own spellings are refused by
+        name.
+      required: [flag]
+      properties:
+        flag:
+          type: string
+          description: The flag as the engine spells it (`--like-this`).
+        value:
+          type: string
+    ModelCreate:
+      type: object
+      required: [name, engine, model_id, project_uuid, environment_uuid, server_uuid]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        engine:
+          type: string
+          enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
+        model_id:
+          type: string
+          description: Hugging Face model reference.
+        served_model_name:
+          type: string
+          nullable: true
+        quantization:
+          type: string
+          nullable: true
+        max_model_len:
+          type: integer
+          nullable: true
+          minimum: 1
+        tensor_parallel_size:
+          type: integer
+          minimum: 1
+          default: 1
+        memory_fraction:
+          type: number
+          format: double
+          nullable: true
+          description: >-
+            The one memory knob (ADR-080 §1), rendered as the engine's own
+            flag — --gpu-memory-utilization on vLLM, --mem-fraction-static
+            on SGLang. Null uses the engine default.
+        image:
+          type: string
+          nullable: true
+          description: >-
+            Image override. Null uses the per-engine, per-architecture
+            default (a GB10 server needs sm_121a builds).
+        image_tag:
+          type: string
+          nullable: true
+        engine_flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngineFlag"
+        shm_size_mb:
+          type: integer
+          nullable: true
+          minimum: 1
+        published_port:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 65535
+          description: LAN endpoint port on the server; omitted = allocated.
+        domains:
+          type: array
+          items:
+            type: string
+          description: >-
+            Optional public domains (`fqdn` or `fqdn/path`) routed by the
+            server's managed proxy — through its edge relay when the server
+            is LAN-only (ADR-077). Empty = the model answers only on the
+            server's LAN address. Routes always target the engine port;
+            `fqdn:port` elements are refused.
+        project_uuid:
+          type: string
+        environment_uuid:
+          type: string
+        server_uuid:
+          type: string
+          description: Target server — must carry an observed GPU (ADR-079).
+        instant_start:
+          type: boolean
+    ModelUpdate:
+      type: object
+      description: >-
+        Engine, server and published port are immutable. Changes take effect
+        at the next start (ADR-080 §5).
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        description:
+          type: string
+          nullable: true
+        model_id:
+          type: string
+        served_model_name:
+          type: string
+          nullable: true
+        quantization:
+          type: string
+          nullable: true
+        max_model_len:
+          type: integer
+          nullable: true
+          minimum: 1
+        tensor_parallel_size:
+          type: integer
+          minimum: 1
+        memory_fraction:
+          type: number
+          format: double
+          nullable: true
+        image:
+          type: string
+          nullable: true
+        image_tag:
+          type: string
+          nullable: true
+        engine_flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngineFlag"
+        shm_size_mb:
+          type: integer
+          nullable: true
+          minimum: 1
+        domains:
+          type: array
+          items:
+            type: string
+          description: >-
+            Full replacement of the model's public domains. Unlike the other
+            fields, routing is regenerated immediately.
+    Model:
+      type: object
+      description: An inference model resource (ADR-080).
+      required: [uuid, name, engine, modality, model_id, server_uuid, published_port, status, created_at, version]
+      properties:
+        uuid:
+          type: string
+          readOnly: true
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        engine:
+          type: string
+          enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
+        model_id:
+          type: string
+        served_model_name:
+          type: string
+          nullable: true
+        quantization:
+          type: string
+          nullable: true
+        max_model_len:
+          type: integer
+          nullable: true
+        tensor_parallel_size:
+          type: integer
+        memory_fraction:
+          type: number
+          format: double
+          nullable: true
+        image:
+          type: string
+          nullable: true
+        image_tag:
+          type: string
+          nullable: true
+        engine_flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngineFlag"
+        shm_size_mb:
+          type: integer
+          nullable: true
+        published_port:
+          type: integer
+        endpoint:
+          type: string
+          description: >-
+            OpenAI-compatible base URL on the server's LAN address
+            (`http://<server-host>:<port>/v1`). With a public domain, the
+            same API also answers on `https://<domain>/v1`.
+        domains:
+          type: array
+          items:
+            type: string
+          description: Public domains routed to this model (ADR-077).
+        project_uuid:
+          type: string
+        environment_uuid:
+          type: string
+        server_uuid:
+          type: string
+        server_name:
+          type: string
+        server_gpu_name:
+          type: string
+          nullable: true
+        active_job:
+          nullable: true
+          description: >-
+            The queued or running lifecycle job of this model, when one
+            exists — the platform refuses to queue a second one (409). It can
+            be cancelled at any point (POST /jobs/{uuid}/cancel): queued, it
+            stops outright; running, it stops at its next checkpoint.
+          type: object
+          required: [uuid, status, job_type]
+          properties:
+            uuid:
+              type: string
+            status:
+              type: string
+            job_type:
+              type: string
+            cancel_requested_at:
+              type: string
+              nullable: true
+              format: date-time
+              description: >-
+                Set once a cancellation has been asked for — the job is
+                stopping, and asking again changes nothing.
+        status:
+          type: string
+          description: Desired status (running/stopped).
+        observed_status:
+          $ref: "#/components/schemas/ObservedStatus"
+        observed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+    ModelCommand:
+      type: object
+      required: [command, masked]
+      properties:
+        command:
+          type: string
+          description: The human serve command, by the deployment's renderer.
+        masked:
+          type: boolean
+          description: True when the API key is shown as `****`.
+    ModelCredentials:
+      type: object
+      required: [api_key, endpoint]
+      properties:
+        api_key:
+          type: string
+        endpoint:
+          type: string
+    ModelCommandPreviewRequest:
+      type: object
+      required: [engine, model_id]
+      properties:
+        engine:
+          type: string
+          enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
+        model_id:
+          type: string
+        served_model_name:
+          type: string
+          nullable: true
+        quantization:
+          type: string
+          nullable: true
+        max_model_len:
+          type: integer
+          nullable: true
+        tensor_parallel_size:
+          type: integer
+          nullable: true
+        memory_fraction:
+          type: number
+          format: double
+          nullable: true
+        engine_flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngineFlag"
+    ModelParseResult:
+      type: object
+      required: [engine, modality, model_id, engine_flags, notices]
+      properties:
+        engine:
+          type: string
+          enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
+        model_id:
+          type: string
+        served_model_name:
+          type: string
+          nullable: true
+        quantization:
+          type: string
+          nullable: true
+        max_model_len:
+          type: integer
+          nullable: true
+        tensor_parallel_size:
+          type: integer
+          nullable: true
+        memory_fraction:
+          type: number
+          format: double
+          nullable: true
+        engine_flags:
+          type: array
+          items:
+            $ref: "#/components/schemas/EngineFlag"
+        notices:
+          type: array
+          items:
+            type: string
+          description: What the import dropped, and why — never silent.
+    HubModel:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: string
+        downloads:
+          type: integer
+          nullable: true
+        likes:
+          type: integer
+          nullable: true
+        gated:
+          type: boolean
+          nullable: true
     ServerCreate:
       type: object
       required: [name, host, private_key_uuid]
@@ -11583,6 +12720,26 @@ components:
           type: string
           default: root
           description: SSH user (experimental non-root, requires sudo NOPASSWD, §3.1).
+        use_sudo:
+          type: boolean
+          default: false
+          description: >-
+            Escalate every remote command through non-interactive `sudo -n`
+            (ADR-076) — the non-root contract of §3.1. Requires a passwordless
+            sudoers entry for the SSH user (`NOPASSWD: ALL`): the connection
+            is authenticated with an SSH key, so there is no password to type
+            when sudo prompts. Pointless for root. The interactive server
+            terminal is never escalated.
+        edge_server_uuid:
+          type: string
+          nullable: true
+          description: >-
+            Server that answers this server's public routes (ADR-077), for a
+            server the internet cannot reach directly. The designated edge
+            relays by TLS SNI passthrough — it holds no certificate and no
+            key; certificates, access walls and noindex stay on this server.
+            Must belong to the same team, run a Traefik proxy, and not itself
+            relay through an edge (no chains).
         private_key_uuid:
           type: string
           description: Private SSH key of the same team (INV-002).
@@ -11632,7 +12789,7 @@ components:
     ServerUpdate:
       type: object
       description: >-
-        Partial update. Changing `host`, `port`, `user` or
+        Partial update. Changing `host`, `port`, `user`, `use_sudo` or
         `private_key_uuid` moves the server back to `pending` (revalidation
         required).
       properties:
@@ -11650,6 +12807,20 @@ components:
           maximum: 65535
         user:
           type: string
+        use_sudo:
+          type: boolean
+          description: >-
+            Escalate every remote command through non-interactive `sudo -n`
+            (ADR-076); requires a passwordless sudoers entry for the SSH
+            user. Changing it triggers revalidation.
+        edge_server_uuid:
+          type: string
+          nullable: true
+          description: >-
+            Server that answers this server's public routes (ADR-077). An
+            empty string clears it (the server serves its own routes again).
+            Changing it re-renders the server's routing and converges its
+            proxy, without revalidating SSH.
         private_key_uuid:
           type: string
         ssh_timeout_seconds:
@@ -11735,6 +12906,39 @@ components:
           type: integer
         user:
           type: string
+        use_sudo:
+          type: boolean
+          description: >-
+            Every remote command is escalated through non-interactive
+            `sudo -n` (ADR-076, §3.1 non-root contract).
+        gpu_name:
+          type: string
+          nullable: true
+          readOnly: true
+          description: >-
+            GPU observed at validation (ADR-079) — a fact, not a setting.
+            Null means none observed, or a card Docker cannot hand to
+            containers (missing NVIDIA runtime, named in the validation).
+        gpu_memory_mb:
+          type: integer
+          nullable: true
+          readOnly: true
+          description: >-
+            GPU memory reported by the driver in MiB (a unified-memory
+            machine reports the shared pool).
+        hf_token_set:
+          type: boolean
+          readOnly: true
+          description: >-
+            A per-server Hugging Face token is stored (ADR-081). Write-only:
+            set/replace/clear via PUT /servers/{uuid}/hf-token, never read
+            back.
+        edge_server_uuid:
+          type: string
+          nullable: true
+          description: >-
+            Server that answers this server's public routes by SNI
+            passthrough (ADR-077); null when the server serves its own.
         private_key_uuid:
           type: string
         ssh_timeout_seconds:
@@ -14641,6 +15845,15 @@ components:
           type: integer
           default: 1
           description: Attempt number (retries §21.3).
+          readOnly: true
+        cancel_requested_at:
+          type: string
+          nullable: true
+          format: date-time
+          description: >-
+            When a cooperative cancellation was asked for. The job keeps its
+            running status until it reaches its next checkpoint — this is what
+            distinguishes "still running" from "stopping".
           readOnly: true
         result:
           type: object

@@ -96,7 +96,10 @@ func (h *IngressRouting) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Fail(ctx, "the server's agent is not connected")
 		return nil, err
 	}
-	applier := &ProxyApplier{Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network}
+	applier := &ProxyApplier{
+		Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network,
+		Edge: &EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+	}
 
 	endpoint, err := h.Store.GetIngressEndpointByID(ctx, payload.EndpointID)
 	if err != nil {

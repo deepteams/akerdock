@@ -15,7 +15,7 @@ const createComponentDomain = `-- name: CreateComponentDomain :one
 INSERT INTO domains (uuid, service_component_id, fqdn, path, target_port, is_generated)
 VALUES ($1, $2, $3, '/', $4, true)
 ON CONFLICT (fqdn, path) DO NOTHING
-RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id
+RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id, model_id
 `
 
 type CreateComponentDomainParams struct {
@@ -49,6 +49,7 @@ func (q *Queries) CreateComponentDomain(ctx context.Context, arg CreateComponent
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.IngressEndpointID,
+		&i.ModelID,
 	)
 	return i, err
 }
@@ -57,7 +58,7 @@ const createDomain = `-- name: CreateDomain :one
 
 INSERT INTO domains (uuid, application_id, fqdn, path, target_port, is_generated)
 VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id
+RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id, model_id
 `
 
 type CreateDomainParams struct {
@@ -93,12 +94,63 @@ func (q *Queries) CreateDomain(ctx context.Context, arg CreateDomainParams) (Dom
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.IngressEndpointID,
+		&i.ModelID,
 	)
 	return i, err
 }
 
+const createModelDomain = `-- name: CreateModelDomain :one
+INSERT INTO domains (uuid, model_id, fqdn, path, target_port, is_generated)
+VALUES ($1, $2, $3, $4, NULL, false)
+RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id, model_id
+`
+
+type CreateModelDomainParams struct {
+	Uuid    pgtype.UUID
+	ModelID *int64
+	Fqdn    string
+	Path    string
+}
+
+// A model's public route (ADR-080 §1 / ADR-077). target_port stays NULL: a
+// model routes to its single engine container port, always.
+func (q *Queries) CreateModelDomain(ctx context.Context, arg CreateModelDomainParams) (Domain, error) {
+	row := q.db.QueryRow(ctx, createModelDomain,
+		arg.Uuid,
+		arg.ModelID,
+		arg.Fqdn,
+		arg.Path,
+	)
+	var i Domain
+	err := row.Scan(
+		&i.ID,
+		&i.Uuid,
+		&i.ApplicationID,
+		&i.ServiceComponentID,
+		&i.Fqdn,
+		&i.Path,
+		&i.TargetPort,
+		&i.IsGenerated,
+		&i.CreatedBy,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.IngressEndpointID,
+		&i.ModelID,
+	)
+	return i, err
+}
+
+const deleteDomainsForModel = `-- name: DeleteDomainsForModel :exec
+DELETE FROM domains WHERE model_id = $1
+`
+
+func (q *Queries) DeleteDomainsForModel(ctx context.Context, modelID *int64) error {
+	_, err := q.db.Exec(ctx, deleteDomainsForModel, modelID)
+	return err
+}
+
 const listDomainsForApplication = `-- name: ListDomainsForApplication :many
-SELECT id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id FROM domains WHERE application_id = $1 ORDER BY fqdn, path
+SELECT id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id, model_id FROM domains WHERE application_id = $1 ORDER BY fqdn, path
 `
 
 func (q *Queries) ListDomainsForApplication(ctx context.Context, applicationID *int64) ([]Domain, error) {
@@ -123,6 +175,45 @@ func (q *Queries) ListDomainsForApplication(ctx context.Context, applicationID *
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.IngressEndpointID,
+			&i.ModelID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDomainsForModel = `-- name: ListDomainsForModel :many
+SELECT id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id, model_id FROM domains WHERE model_id = $1 ORDER BY fqdn, path
+`
+
+func (q *Queries) ListDomainsForModel(ctx context.Context, modelID *int64) ([]Domain, error) {
+	rows, err := q.db.Query(ctx, listDomainsForModel, modelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Domain
+	for rows.Next() {
+		var i Domain
+		if err := rows.Scan(
+			&i.ID,
+			&i.Uuid,
+			&i.ApplicationID,
+			&i.ServiceComponentID,
+			&i.Fqdn,
+			&i.Path,
+			&i.TargetPort,
+			&i.IsGenerated,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.IngressEndpointID,
+			&i.ModelID,
 		); err != nil {
 			return nil, err
 		}

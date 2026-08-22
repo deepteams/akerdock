@@ -1,0 +1,22 @@
+{
+  "description": "Le relais edge (ADR-077) : un serveur LAN-only (origine) dont les routes publiques sont servies par un edge. Côté EDGE, un fichier dynamique par serveur origine — router TCP HostSNI en passthrough (le SNI se lit en clair dans le ClientHello, l'edge ne détient ni clé ni certificat) vers origine:443 avec PROXY protocol v2, plus un relais Host sur 80 pour que les challenges ACME HTTP-01 et la redirection HTTPS traversent. Côté ORIGINE, la config statique fait confiance aux adresses de l'edge et à rien d'autre : proxyProtocol sur 443 (sinon chaque mur et chaque log lirait l'IP LAN de l'edge comme visiteur), forwardedHeaders sur 80 (ce saut-là est du reverse-proxy HTTP ordinaire). Le service HTTP du relais porte exactement le nom du scope : la vérification d'apply sonde /api/http/services.",
+  "ir_version": 1,
+  "static": {
+    "http_port": 80,
+    "https_port": 443,
+    "acme_email": "ops@example.com",
+    "edge_trusted_ips": ["192.168.10.2"],
+    "revision": 51
+  },
+  "groups": [],
+  "edge": [
+    {
+      "origin_uuid": "9f8e7d6c-5b4a-4392-8110-ffeeddccbbaa",
+      "origin_host": "192.168.10.20",
+      "http_port": 80,
+      "https_port": 443,
+      "fqdns": ["llm.service.example.com", "api.service.example.com"],
+      "revision": 51
+    }
+  ]
+}

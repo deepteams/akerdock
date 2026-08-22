@@ -37,6 +37,12 @@ type Querier interface {
 	CanStartServerCleanup(ctx context.Context, serverID int64) (bool, error)
 	CancelJobsForDeployments(ctx context.Context, deploymentIds []int64) error
 	CancelQueuedDeployment(ctx context.Context, id int64) (int64, error)
+	// The enqueue you regret: a job that has NOT started stops here and now.
+	// One that already runs takes the cooperative path below when its family
+	// has a checkpoint — killing it mid-mutation would leave the server in a
+	// state nobody asked for. Zero rows = not cancellable this way, the caller
+	// tries the cooperative request before answering 409.
+	CancelQueuedJob(ctx context.Context, id int64) (int64, error)
 	// HTTP idempotency (§24.1).
 	// Inserts the key, or returns the existing row when the key was already
 	// used: the caller compares the request hash and replays the response.
@@ -155,6 +161,9 @@ type Querier interface {
 	CountResourcesOnServer(ctx context.Context, serverID int64) (int64, error)
 	CountRunningRestoreDrills(ctx context.Context, planID int64) (int64, error)
 	CountRunningTaskExecutions(ctx context.Context, scheduledTaskID int64) (int64, error)
+	// How many servers relay through this one (ADR-077): non-zero forbids the
+	// edge itself from designating an edge — no chains.
+	CountServersUsingEdge(ctx context.Context, edgeServerID *int64) (int64, error)
 	CountServersUsingPrivateKey(ctx context.Context, privateKeyID int64) (int64, error)
 	// How many events this rule swallowed since its last send — an aggregated
 	// alert must be able to say "and 12 others" rather than hide them (ADR-019).
@@ -264,6 +273,15 @@ type Querier interface {
 	// Single-use authorization code, PKCE challenge attached (ADR-043 §3).
 	CreateMcpOauthCode(ctx context.Context, arg CreateMcpOauthCodeParams) error
 	CreateMfaChallenge(ctx context.Context, arg CreateMfaChallengeParams) error
+	// A model's public route (ADR-080 §1 / ADR-077). target_port stays NULL: a
+	// model routes to its single engine container port, always.
+	CreateModelDomain(ctx context.Context, arg CreateModelDomainParams) (Domain, error)
+	// Models: first-class inference resources (ADR-080). The API key is
+	// enveloped like a database credential; engine_flags is the ORDERED tier-2
+	// jsonb list; the port and the server are immutable in v1 (a moved model is
+	// a new model — the weights cache is server-scoped), as is the modality
+	// (ADR-083: it decides the image and the process).
+	CreateModelRow(ctx context.Context, arg CreateModelRowParams) error
 	// A deployment that rebuilds nothing (ADR-048): the artifact is the one
 	// already running, the pipeline reruns to apply the current configuration.
 	// `image_digest` pins it when the artifact carries one, so what comes back up
@@ -345,6 +363,7 @@ type Querier interface {
 	// pointer so it is never offered as a target.
 	DeleteDeploymentArtifact(ctx context.Context, id int64) error
 	DeleteDomainsForApplication(ctx context.Context, applicationID *int64) error
+	DeleteDomainsForModel(ctx context.Context, modelID *int64) error
 	DeleteEnvVar(ctx context.Context, id int64) (int64, error)
 	DeleteEnvVarsNotInKeys(ctx context.Context, arg DeleteEnvVarsNotInKeysParams) error
 	DeleteExpiredMcpOauthCodes(ctx context.Context) error
@@ -419,6 +438,9 @@ type Querier interface {
 	// Bearer token authentication (§10.3, ERD §12: prefix pre-filter then
 	// constant-time hash comparison in the application).
 	GetActiveApiTokensByPrefix(ctx context.Context, tokenPrefix string) ([]GetActiveApiTokensByPrefixRow, error)
+	// The queued-or-running job of one lock key (ADR-080 UX): what the model
+	// page shows, what the double-enqueue guard names in its 409.
+	GetActiveJobByLockKey(ctx context.Context, lockKey *string) (GetActiveJobByLockKeyRow, error)
 	GetAdoptionScanByID(ctx context.Context, id int64) (AdoptionScan, error)
 	GetAdoptionScanByUUIDForTeam(ctx context.Context, arg GetAdoptionScanByUUIDForTeamParams) (GetAdoptionScanByUUIDForTeamRow, error)
 	GetAgentTokenByHash(ctx context.Context, tokenHash string) (AgentToken, error)
@@ -538,6 +560,8 @@ type Querier interface {
 	// secret, hashed recovery codes, and the short-lived login challenges of a
 	// two-step login.
 	GetMfaFactorForUser(ctx context.Context, userID int64) (MfaFactor, error)
+	GetModelByID(ctx context.Context, id int64) (GetModelByIDRow, error)
+	GetModelByUUID(ctx context.Context, arg GetModelByUUIDParams) (GetModelByUUIDRow, error)
 	GetNotificationChannelByID(ctx context.Context, id int64) (NotificationChannel, error)
 	GetNotificationChannelByUUID(ctx context.Context, arg GetNotificationChannelByUUIDParams) (NotificationChannel, error)
 	GetNotificationCursor(ctx context.Context) (int64, error)
@@ -783,6 +807,7 @@ type Querier interface {
 	// with nothing pending is not woken up: an empty digest is noise.
 	ListDigestRulesDue(ctx context.Context) ([]ListDigestRulesDueRow, error)
 	ListDomainsForApplication(ctx context.Context, applicationID *int64) ([]Domain, error)
+	ListDomainsForModel(ctx context.Context, modelID *int64) ([]Domain, error)
 	// Enabled plans whose drill window has elapsed — managed databases AND stack
 	// components. A plan that has never been drilled (last_drill_at IS NULL) is
 	// due immediately: the first drill is the one that tells you whether the
@@ -845,6 +870,9 @@ type Querier interface {
 	// labelled — a disowned resource keeps its labels but is adoptable again.
 	ListLiveResourceUUIDs(ctx context.Context, uuids []pgtype.UUID) ([]pgtype.UUID, error)
 	ListMcpAccessTokensForTeam(ctx context.Context, teamID int64) ([]McpAccessToken, error)
+	// Team-wide, not per environment: the Models section is a transverse view
+	// (ADR-080 §6) — every model of the team with its server and GPU.
+	ListModelsPage(ctx context.Context, arg ListModelsPageParams) ([]ListModelsPageRow, error)
 	// Notifications (§11, ADR-019).
 	ListNotificationChannelsPage(ctx context.Context, arg ListNotificationChannelsPageParams) ([]NotificationChannel, error)
 	ListNotificationRules(ctx context.Context, channelID int64) ([]NotificationRule, error)
@@ -901,6 +929,10 @@ type Querier interface {
 	ListRegistryCredentialsPage(ctx context.Context, arg ListRegistryCredentialsPageParams) ([]RegistryCredential, error)
 	ListRepositoriesForSource(ctx context.Context, gitSourceID int64) ([]Repository, error)
 	ListRestoreDrillsPage(ctx context.Context, arg ListRestoreDrillsPageParams) ([]ListRestoreDrillsPageRow, error)
+	// The soft start-guard of ADR-080 §5: the models on this server, other than
+	// the one starting, that are running by intent or by observation — the set
+	// the confirmation names before offering the one-click swap.
+	ListRunningModelsOnServer(ctx context.Context, arg ListRunningModelsOnServerParams) ([]ListRunningModelsOnServerRow, error)
 	// S3 storages (§7.2, data-dictionary §6.6). Credentials are envelope-encrypted
 	// and never leave the instance (INV-003).
 	ListS3StoragesPage(ctx context.Context, arg ListS3StoragesPageParams) ([]S3Storage, error)
@@ -917,6 +949,13 @@ type Querier interface {
 	ListScheduledTasksPage(ctx context.Context, arg ListScheduledTasksPageParams) ([]ListScheduledTasksPageRow, error)
 	ListScimTokensPage(ctx context.Context, teamID int64) ([]ScimToken, error)
 	ListServerDomains(ctx context.Context, serverID int64) ([]ListServerDomainsRow, error)
+	// Every public FQDN a server answers for, across the places one can live
+	// (ADR-077): application domains, compose component domains, model domains
+	// (ADR-080) and preview FQDNs. This is what the edge relay file of that server is rebuilt from —
+	// whole, on every routing apply, so the file can never drift from placements.
+	// Previews are included from `queued` on (ADR-073: the URL answers from the
+	// moment the PR is opened) and drop out at destruction.
+	ListServerRelayFQDNs(ctx context.Context, serverID int64) ([]string, error)
 	// Server inventory (§3): only managed resources appear here (INV-015).
 	ListServerResourcesPage(ctx context.Context, arg ListServerResourcesPageParams) ([]ListServerResourcesPageRow, error)
 	ListServersPage(ctx context.Context, arg ListServersPageParams) ([]Server, error)
@@ -991,6 +1030,9 @@ type Querier interface {
 	// crashed: restarting at 1 would collide with the steps already recorded, and
 	// would also erase the history of what the dead worker had done.
 	MaxDeploymentStepSeq(ctx context.Context, deploymentID int64) (int32, error)
+	// Lowest free port in the models range for a server; the unique index stays
+	// the authority against concurrent allocation (§22.3, databases precedent).
+	NextFreeModelPort(ctx context.Context, serverID int64) (int32, error)
 	// Lowest free port in the dynamic range for a server (§6.2); the unique
 	// index remains the authority against concurrent allocation.
 	NextFreePublicPort(ctx context.Context, serverID int64) (int32, error)
@@ -1056,6 +1098,10 @@ type Querier interface {
 	// 20 s would push the wake comparison out of reach forever.
 	RecordPreviewActivity(ctx context.Context, id int64) error
 	RecordServerFacts(ctx context.Context, arg RecordServerFactsParams) error
+	// The ADR-079 facts, written by the validation's detect_gpu step. Nullable on
+	// purpose: NULL is "none observed", and a GPU that disappears (driver removed,
+	// card moved) must be able to go back to NULL at the next validation.
+	RecordServerGPU(ctx context.Context, arg RecordServerGPUParams) error
 	RecordUptimeResult(ctx context.Context, arg RecordUptimeResultParams) error
 	// Built-in MCP server (ADR-043): OAuth 2.1 for remote clients. Everything
 	// here is read-only in effect — a grant only ever reads one team's inventory.
@@ -1069,6 +1115,13 @@ type Querier interface {
 	// Cooperative cancellation (§2.6): the worker checks the flag at each
 	// checkpoint between steps, before the switching barrier (§21.1).
 	RequestDeploymentJobCancel(ctx context.Context, deploymentID int64) (int64, error)
+	// Cooperative cancellation of a job already in flight, by id. Only the
+	// families that actually poll the flag are eligible — a job type absent
+	// from this list would take the flag and ignore it, which reads to the
+	// operator as a cancel that did nothing. Setting it twice is not an error,
+	// but zero rows must mean "not cancellable", so an already-flagged job
+	// still counts as a row.
+	RequestJobCancel(ctx context.Context, id int64) (int64, error)
 	// The display name of what an action touched, read at the moment it is audited
 	// so the trail keeps the name the resource had THEN (see 00084).
 	//
@@ -1189,6 +1242,10 @@ type Querier interface {
 	SetServerCA(ctx context.Context, arg SetServerCAParams) error
 	// Scheduler-owned: never bumps `version` (not a user edit).
 	SetServerCleanupSchedule(ctx context.Context, arg SetServerCleanupScheduleParams) error
+	// The ADR-081 per-server token: NULL clears it, and nothing ever selects it
+	// back out on its own — it is decrypted only where it is used (the model
+	// container env).
+	SetServerHFToken(ctx context.Context, arg SetServerHFTokenParams) error
 	SetServerStatus(ctx context.Context, arg SetServerStatusParams) error
 	SetServiceAccessBasicAuth(ctx context.Context, arg SetServiceAccessBasicAuthParams) error
 	SetServiceAccessProtection(ctx context.Context, arg SetServiceAccessProtectionParams) error
@@ -1309,6 +1366,7 @@ type Querier interface {
 	// delete + declare, which is what it costs everywhere else in the product.
 	UpdateIngressEndpoint(ctx context.Context, arg UpdateIngressEndpointParams) (IngressEndpoint, error)
 	UpdateJobSteps(ctx context.Context, arg UpdateJobStepsParams) error
+	UpdateModelRow(ctx context.Context, arg UpdateModelRowParams) error
 	UpdateNotificationChannel(ctx context.Context, arg UpdateNotificationChannelParams) (int64, error)
 	// Called after every successful assertion: the sign counter moved, and the
 	// clone-detection logic downstream depends on it being persisted.

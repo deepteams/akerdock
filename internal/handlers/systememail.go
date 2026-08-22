@@ -86,7 +86,7 @@ func (a *API) SetTransactionalEmail(w http.ResponseWriter, r *http.Request) {
 	// Verified BEFORE it is accepted. A relay that cannot be reached is refused
 	// here, where an operator is looking, rather than at the first invitation —
 	// where the only symptom would be a mail that never arrives.
-	if err := notify.New().Send(r.Context(), kind, cfg, notify.Event{
+	if err := notify.NewSystem().Send(r.Context(), kind, cfg, notify.Event{
 		Type:     "instance.email_test.v1",
 		Resource: "akerdock",
 	}); err != nil {

@@ -24,8 +24,15 @@ type testSSHServer struct {
 	rejectPTY   bool
 	rejectStart bool
 
-	mu    sync.Mutex
-	conns []net.Conn
+	mu       sync.Mutex
+	conns    []net.Conn
+	lastExec string
+}
+
+func (s *testSSHServer) lastCommand() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastExec
 }
 
 func newTestSSHServer(t *testing.T, rejectPTY, rejectStart bool) *testSSHServer {
@@ -121,9 +128,29 @@ func (s *testSSHServer) handleChannel(in ssh.NewChannel) {
 			var payload struct{ Command string }
 			_ = ssh.Unmarshal(request.Payload, &payload)
 			request.Reply(true, nil)
-			switch payload.Command {
+			s.mu.Lock()
+			s.lastExec = payload.Command
+			s.mu.Unlock()
+			command := payload.Command
+			// A sudo-enabled client wraps every command (EnableSudo): peel the
+			// wrapper so the fake behaviours below stay addressable, and fake
+			// sudo's own refusals for the two commands that ask for them.
+			if inner, wrapped := strings.CutPrefix(command, "LC_ALL=C sudo -n -- sh -c '"); wrapped {
+				command = strings.TrimSuffix(inner, "'")
+				switch command {
+				case "needs-password":
+					_, _ = channel.Stderr().Write([]byte("sudo: a password is required\n"))
+					sendExit(channel, 1)
+					return
+				case "no-sudo":
+					_, _ = channel.Stderr().Write([]byte("sh: 1: sudo: not found\n"))
+					sendExit(channel, 127)
+					return
+				}
+			}
+			switch command {
 			case "success", "input":
-				if payload.Command == "input" {
+				if command == "input" {
 					raw, _ := io.ReadAll(channel)
 					_, _ = channel.Write([]byte("stdin=" + string(raw)))
 				} else {
@@ -276,6 +303,71 @@ func TestRunSuccessInputAndExitStatus(t *testing.T) {
 	result, err = client.Run(context.Background(), "exit7")
 	if err != nil || result.ExitCode != 7 || result.Stderr != "failed" {
 		t.Fatalf("exit result = %#v, %v", result, err)
+	}
+}
+
+// A sudo-enabled client must wrap the WHOLE snippet — a && chain escalated
+// half-way is worse than not escalated at all — and stdin must still reach
+// the inner command (INV-003 uploads ride RunInput).
+func TestSudoWrapsEveryCommand(t *testing.T) {
+	server := newTestSSHServer(t, false, false)
+	client := dialTestServer(t, server, "")
+
+	// Before EnableSudo: the command goes out bare.
+	if _, err := client.Run(context.Background(), "success"); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.lastCommand(); got != "success" {
+		t.Fatalf("bare command rewritten to %q", got)
+	}
+
+	client.EnableSudo()
+	result, err := client.Run(context.Background(), "success")
+	if err != nil || result.Stdout != "stdout" || result.ExitCode != 0 {
+		t.Fatalf("sudo Run = %#v, %v", result, err)
+	}
+	if got, want := server.lastCommand(), "LC_ALL=C sudo -n -- sh -c 'success'"; got != want {
+		t.Fatalf("wrapped command = %q, want %q", got, want)
+	}
+
+	// Single quotes inside the snippet must survive the wrapping.
+	if _, err := client.Run(context.Background(), "echo 'x'"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := server.lastCommand(), `LC_ALL=C sudo -n -- sh -c 'echo '\''x'\'''`; got != want {
+		t.Fatalf("escaped command = %q, want %q", got, want)
+	}
+
+	result, err = client.RunInput(context.Background(), "input", "sensitive input")
+	if err != nil || result.Stdout != "stdin=sensitive input" {
+		t.Fatalf("sudo RunInput = %#v, %v", result, err)
+	}
+
+	// An ordinary non-zero exit stays a Result, never a sudo error.
+	result, err = client.Run(context.Background(), "exit7")
+	if err != nil || result.ExitCode != 7 {
+		t.Fatalf("sudo exit result = %#v, %v", result, err)
+	}
+}
+
+// sudo's own refusals become typed errors carrying the remediation: the
+// caller shows them to the operator, who has no shell transcript to read.
+func TestSudoRefusalsAreClassified(t *testing.T) {
+	client := dialTestServer(t, newTestSSHServer(t, false, false), "")
+	client.EnableSudo()
+
+	_, err := client.Run(context.Background(), "needs-password")
+	if !errors.Is(err, ErrSudoPassword) {
+		t.Fatalf("password-required error = %v", err)
+	}
+	// The message must name the fix and the user it applies to.
+	if !strings.Contains(err.Error(), "NOPASSWD") || !strings.Contains(err.Error(), "tester") {
+		t.Fatalf("remediation missing from %q", err.Error())
+	}
+
+	_, err = client.Run(context.Background(), "no-sudo")
+	if !errors.Is(err, ErrSudoMissing) {
+		t.Fatalf("sudo-missing error = %v", err)
 	}
 }
 
