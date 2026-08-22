@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -360,6 +361,87 @@ func TestModelExecuteLifecycleAndSwap(t *testing.T) {
 		bad := store.Job{ID: 1, JobType: TypeModelStop, Payload: []byte(`{`)}
 		if _, err := h.Execute(ctx, bad, queue.NewStepRecorder(q, bad)); err == nil {
 			t.Fatal("want a payload error")
+		}
+	})
+}
+
+// The omni half of the runtime table (ADR-083): another invocation, no
+// default image, and the engine's own flag spellings kept.
+func TestModelOmniRuntimeInTheContainer(t *testing.T) {
+	t.Run("an omni runtime has no default image to fall back on", func(t *testing.T) {
+		omni := store.Model{Engine: store.InferenceEngineSglang, Modality: store.InferenceModalityOmni}
+		if got := ModelImage(omni, "arm64"); got != "" {
+			t.Fatalf("omni default = %q, want none — neither project publishes one to pin", got)
+		}
+		image := "local/sglang-omni:0.1.3"
+		omni.Image = &image
+		if got := ModelImage(omni, "arm64"); got != image {
+			t.Fatalf("override = %q", got)
+		}
+	})
+
+	previous := modelReadyBudget
+	modelReadyBudget = time.Second
+	t.Cleanup(func() { modelReadyBudget = previous })
+
+	t.Run("a row with no image fails by name rather than pulling a wrong one", func(t *testing.T) {
+		h, row, rt, _ := modelrunFixture(t, store.InferenceEngineSglang, nil)
+		row.Model.Modality = store.InferenceModalityOmni
+		rt.ContainerCreateFn = func(context.Context, *container.Config, *container.HostConfig, *network.NetworkingConfig, *ocispec.Platform, string) (container.CreateResponse, error) {
+			t.Fatal("no container may be created without an image")
+			return container.CreateResponse{}, nil
+		}
+		err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1)
+		if err == nil || !strings.Contains(err.Error(), "no default image") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("sglang omni runs sgl-omni serve with the SGLang spellings", func(t *testing.T) {
+		h, row, rt, _ := modelrunFixture(t, store.InferenceEngineSglang, nil)
+		image := "local/sglang-omni:0.1.3"
+		row.Model.Modality, row.Model.Image = store.InferenceModalityOmni, &image
+		row.Model.ModelID = "MiniMaxAI/MiniMax-Music3"
+		var config *container.Config
+		rt.ContainerCreateFn = func(_ context.Context, c *container.Config, _ *container.HostConfig, _ *network.NetworkingConfig, _ *ocispec.Platform, _ string) (container.CreateResponse, error) {
+			config = c
+			return container.CreateResponse{}, nil
+		}
+		if err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1); err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(config.Cmd[:2], " "); got != "sgl-omni serve" {
+			t.Fatalf("invocation = %q", got)
+		}
+		if joined := strings.Join(config.Cmd, " "); !strings.Contains(joined, "--model-path MiniMaxAI/MiniMax-Music3") {
+			t.Fatalf("cmd = %s", joined)
+		}
+		if config.Image != image {
+			t.Fatalf("image = %q, want the override", config.Image)
+		}
+		probe := strconv.Itoa(inference.ContainerPort) + inference.HealthPath(inference.Config{Engine: inference.EngineSGLang, Modality: inference.ModalityOmni})
+		if !strings.Contains(strings.Join(config.Healthcheck.Test, " "), probe) {
+			t.Fatalf("health check = %v", config.Healthcheck.Test)
+		}
+	})
+
+	t.Run("vllm omni stays flags-alone and carries the marker", func(t *testing.T) {
+		h, row, rt, _ := modelrunFixture(t, store.InferenceEngineVllm, nil)
+		image := "local/vllm-omni:0.26.1"
+		row.Model.Modality, row.Model.Image = store.InferenceModalityOmni, &image
+		var config *container.Config
+		rt.ContainerCreateFn = func(_ context.Context, c *container.Config, _ *container.HostConfig, _ *network.NetworkingConfig, _ *ocispec.Platform, _ string) (container.CreateResponse, error) {
+			config = c
+			return container.CreateResponse{}, nil
+		}
+		if err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1); err != nil {
+			t.Fatal(err)
+		}
+		if config.Cmd[0] != "--model" {
+			t.Fatalf("the image entrypoints `vllm serve`: the command is flags alone, got %q", config.Cmd[0])
+		}
+		if !strings.Contains(strings.Join(config.Cmd, " "), inference.OmniMarker) {
+			t.Fatalf("cmd = %v — the marker is what activates the omni path", config.Cmd)
 		}
 	})
 }

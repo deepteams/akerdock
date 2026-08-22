@@ -279,7 +279,8 @@ type Querier interface {
 	// Models: first-class inference resources (ADR-080). The API key is
 	// enveloped like a database credential; engine_flags is the ORDERED tier-2
 	// jsonb list; the port and the server are immutable in v1 (a moved model is
-	// a new model — the weights cache is server-scoped).
+	// a new model — the weights cache is server-scoped), as is the modality
+	// (ADR-083: it decides the image and the process).
 	CreateModelRow(ctx context.Context, arg CreateModelRowParams) error
 	// A deployment that rebuilds nothing (ADR-048): the artifact is the one
 	// already running, the pipeline reruns to apply the current configuration.

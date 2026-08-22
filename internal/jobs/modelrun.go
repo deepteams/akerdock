@@ -181,7 +181,9 @@ func (h *ModelRun) Execute(ctx context.Context, job store.Job, rec *queue.StepRe
 }
 
 // ModelImage resolves the image: the override when set, the per-engine,
-// per-architecture default otherwise (ADR-080 §1).
+// per-architecture default otherwise (ADR-080 §1). An omni runtime has no
+// default to fall back on (ADR-083 §4) — the empty string is the caller's
+// signal, and every write path refuses to create one without an image.
 func ModelImage(m store.Model, architecture string) string {
 	if m.Image != nil && *m.Image != "" {
 		image := *m.Image
@@ -189,6 +191,9 @@ func ModelImage(m store.Model, architecture string) string {
 			image += ":" + *m.ImageTag
 		}
 		return image
+	}
+	if inference.ImageRequired(inference.Engine(m.Engine), inference.Modality(m.Modality)) {
+		return ""
 	}
 	arm := architecture == "arm64"
 	if m.Engine == store.InferenceEngineSglang {
@@ -215,6 +220,7 @@ func ModelInferenceConfig(m store.Model) (inference.Config, error) {
 	}
 	cfg := inference.Config{
 		Engine:         inference.Engine(m.Engine),
+		Modality:       inference.Modality(m.Modality),
 		ModelID:        m.ModelID,
 		TensorParallel: int(m.TensorParallelSize),
 		Flags:          flags,
@@ -259,6 +265,12 @@ func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row 
 		arch = *server.Architecture
 	}
 	image := ModelImage(row.Model, arch)
+	if image == "" {
+		// Only reachable if a row escaped both the API validation and the
+		// migration's CHECK; naming the runtime beats pulling a wrong image.
+		return fmt.Errorf("a %s/%s model has no default image: set an explicit image on the model",
+			row.Model.Engine, row.Model.Modality)
+	}
 
 	team := ""
 	if t, err := h.Store.GetTeamByID(ctx, row.Resource.TeamID); err == nil {
@@ -307,12 +319,14 @@ func (h *ModelRun) provision(ctx context.Context, rt dockerruntime.Runtime, row 
 	config := &container.Config{
 		Image: image, Env: env, Labels: labels,
 		Cmd: inference.ContainerCommand(cfg, string(apiKey)),
-		// The engine's own health signal: /health answers while loading too
-		// slowly for TCP checks to mean anything, so the start period is the
-		// generous one and readiness is judged below, not here.
+		// The runtime's own health signal (ADR-083 §5 names the path, since
+		// an omni surface serves /v1/audio/speech rather than a chat
+		// endpoint): it answers while loading too slowly for TCP checks to
+		// mean anything, so the start period is the generous one and
+		// readiness is judged below, not here.
 		Healthcheck: &container.HealthConfig{
 			Test: []string{"CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:" +
-				strconv.Itoa(inference.ContainerPort) + "/health', timeout=5)\""},
+				strconv.Itoa(inference.ContainerPort) + inference.HealthPath(cfg) + "', timeout=5)\""},
 			Interval: 10 * time.Second, Retries: 3, StartPeriod: 2 * time.Minute,
 		},
 		ExposedPorts: nat.PortSet{modelContainerPort(): struct{}{}},

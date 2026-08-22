@@ -731,6 +731,48 @@ func (ns NullInferenceEngine) Value() (driver.Value, error) {
 	return string(ns.InferenceEngine), nil
 }
 
+type InferenceModality string
+
+const (
+	InferenceModalityText InferenceModality = "text"
+	InferenceModalityOmni InferenceModality = "omni"
+)
+
+func (e *InferenceModality) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InferenceModality(s)
+	case string:
+		*e = InferenceModality(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InferenceModality: %T", src)
+	}
+	return nil
+}
+
+type NullInferenceModality struct {
+	InferenceModality InferenceModality
+	Valid             bool // Valid is true if InferenceModality is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInferenceModality) Scan(value interface{}) error {
+	if value == nil {
+		ns.InferenceModality, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InferenceModality.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInferenceModality) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InferenceModality), nil
+}
+
 type IngressAccess string
 
 const (
@@ -2885,6 +2927,7 @@ type Model struct {
 	ServerID           int64
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	Modality           InferenceModality
 }
 
 type NotificationChannel struct {

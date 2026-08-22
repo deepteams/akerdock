@@ -13,13 +13,14 @@ import (
 
 const createModelRow = `-- name: CreateModelRow :exec
 
-INSERT INTO models (id, engine, model_id, served_model_name, quantization, max_model_len, tensor_parallel_size, memory_fraction, image, image_tag, engine_flags, api_key_enc, shm_size_mb, published_port, server_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+INSERT INTO models (id, engine, modality, model_id, served_model_name, quantization, max_model_len, tensor_parallel_size, memory_fraction, image, image_tag, engine_flags, api_key_enc, shm_size_mb, published_port, server_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 `
 
 type CreateModelRowParams struct {
 	ID                 int64
 	Engine             InferenceEngine
+	Modality           InferenceModality
 	ModelID            string
 	ServedModelName    *string
 	Quantization       *string
@@ -38,11 +39,13 @@ type CreateModelRowParams struct {
 // Models: first-class inference resources (ADR-080). The API key is
 // enveloped like a database credential; engine_flags is the ORDERED tier-2
 // jsonb list; the port and the server are immutable in v1 (a moved model is
-// a new model — the weights cache is server-scoped).
+// a new model — the weights cache is server-scoped), as is the modality
+// (ADR-083: it decides the image and the process).
 func (q *Queries) CreateModelRow(ctx context.Context, arg CreateModelRowParams) error {
 	_, err := q.db.Exec(ctx, createModelRow,
 		arg.ID,
 		arg.Engine,
+		arg.Modality,
 		arg.ModelID,
 		arg.ServedModelName,
 		arg.Quantization,
@@ -61,7 +64,7 @@ func (q *Queries) CreateModelRow(ctx context.Context, arg CreateModelRowParams) 
 }
 
 const getModelByID = `-- name: GetModelByID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, m.id, m.engine, m.model_id, m.served_model_name, m.quantization, m.max_model_len, m.tensor_parallel_size, m.memory_fraction, m.image, m.image_tag, m.engine_flags, m.api_key_enc, m.shm_size_mb, m.published_port, m.server_id, m.created_at, m.updated_at
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, m.id, m.engine, m.model_id, m.served_model_name, m.quantization, m.max_model_len, m.tensor_parallel_size, m.memory_fraction, m.image, m.image_tag, m.engine_flags, m.api_key_enc, m.shm_size_mb, m.published_port, m.server_id, m.created_at, m.updated_at, m.modality
 FROM resources r
 JOIN models m ON m.id = r.id
 WHERE r.id = $1 AND r.deleted_at IS NULL AND r.resource_type = 'model'
@@ -114,12 +117,13 @@ func (q *Queries) GetModelByID(ctx context.Context, id int64) (GetModelByIDRow, 
 		&i.Model.ServerID,
 		&i.Model.CreatedAt,
 		&i.Model.UpdatedAt,
+		&i.Model.Modality,
 	)
 	return i, err
 }
 
 const getModelByUUID = `-- name: GetModelByUUID :one
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, m.id, m.engine, m.model_id, m.served_model_name, m.quantization, m.max_model_len, m.tensor_parallel_size, m.memory_fraction, m.image, m.image_tag, m.engine_flags, m.api_key_enc, m.shm_size_mb, m.published_port, m.server_id, m.created_at, m.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, m.id, m.engine, m.model_id, m.served_model_name, m.quantization, m.max_model_len, m.tensor_parallel_size, m.memory_fraction, m.image, m.image_tag, m.engine_flags, m.api_key_enc, m.shm_size_mb, m.published_port, m.server_id, m.created_at, m.updated_at, m.modality,
        e.uuid AS environment_uuid, p.uuid AS project_uuid, srv.uuid AS server_uuid,
        srv.host AS server_host, srv.name AS server_name, srv.gpu_name AS server_gpu_name
 FROM resources r
@@ -188,6 +192,7 @@ func (q *Queries) GetModelByUUID(ctx context.Context, arg GetModelByUUIDParams) 
 		&i.Model.ServerID,
 		&i.Model.CreatedAt,
 		&i.Model.UpdatedAt,
+		&i.Model.Modality,
 		&i.EnvironmentUuid,
 		&i.ProjectUuid,
 		&i.ServerUuid,
@@ -199,7 +204,7 @@ func (q *Queries) GetModelByUUID(ctx context.Context, arg GetModelByUUIDParams) 
 }
 
 const listModelsPage = `-- name: ListModelsPage :many
-SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, m.id, m.engine, m.model_id, m.served_model_name, m.quantization, m.max_model_len, m.tensor_parallel_size, m.memory_fraction, m.image, m.image_tag, m.engine_flags, m.api_key_enc, m.shm_size_mb, m.published_port, m.server_id, m.created_at, m.updated_at,
+SELECT r.id, r.uuid, r.team_id, r.environment_id, r.destination_id, r.resource_type, r.name, r.description, r.desired_status, r.observed_status, r.observed_at, r.last_online_at, r.remnants, r.created_by, r.updated_by, r.created_at, r.updated_at, r.deleted_at, r.version, r.adopted_at, r.adoption, m.id, m.engine, m.model_id, m.served_model_name, m.quantization, m.max_model_len, m.tensor_parallel_size, m.memory_fraction, m.image, m.image_tag, m.engine_flags, m.api_key_enc, m.shm_size_mb, m.published_port, m.server_id, m.created_at, m.updated_at, m.modality,
        e.uuid AS environment_uuid, p.uuid AS project_uuid, srv.uuid AS server_uuid,
        srv.host AS server_host, srv.name AS server_name, srv.gpu_name AS server_gpu_name
 FROM resources r
@@ -280,6 +285,7 @@ func (q *Queries) ListModelsPage(ctx context.Context, arg ListModelsPageParams) 
 			&i.Model.ServerID,
 			&i.Model.CreatedAt,
 			&i.Model.UpdatedAt,
+			&i.Model.Modality,
 			&i.EnvironmentUuid,
 			&i.ProjectUuid,
 			&i.ServerUuid,

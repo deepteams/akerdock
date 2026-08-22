@@ -62,6 +62,9 @@ function splitDomains(raw: string): string[] {
           </a>
           <h1>{{ mo.name }}</h1>
           <span class="akd-badge akd-badge--accent akd-badge--mono">{{ mo.engine }}</span>
+          @if (mo.modality === 'omni') {
+            <span class="akd-badge akd-badge--mono">omni</span>
+          }
           <akd-status-badge domain="resource" [state]="mo.status" />
           <akd-status-badge domain="resource" [state]="mo.observed_status ?? 'unknown'" />
           <span class="grow"></span>
@@ -307,7 +310,11 @@ function splitDomains(raw: string): string[] {
                       id="md-image"
                       name="image"
                       class="akd-input akd-input--mono"
-                      placeholder="per-engine default for this server's CPU"
+                      [placeholder]="
+                        mo.modality === 'omni'
+                          ? 'required — an omni runtime has no image to default to'
+                          : 'per-engine default for the server architecture'
+                      "
                       [(ngModel)]="image"
                       [disabled]="busy()"
                     />

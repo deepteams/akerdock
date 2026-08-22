@@ -1,5 +1,6 @@
 // Package inference renders and parses the serve command of the model
-// resource (ADR-080). One renderer is the single source of truth: the
+// resource (ADR-080, extended by ADR-083). One renderer is the single source
+// of truth: the
 // deployment's container command, the copy-ready human command of the
 // dashboard, and the paste-import all go through it — the export/import
 // round-trip is the identity on the configuration, pinned by tests.
@@ -12,8 +13,10 @@ import (
 	"strings"
 )
 
-// Engine is the inference runtime (ADR-080 §1): the enum is born with
-// exactly the two engines the DGX Spark playbooks cover.
+// Engine is the flag VOCABULARY of a model (ADR-080 §1, ADR-083 §1): the
+// enum is born with exactly the two engines the DGX Spark playbooks cover,
+// and stays at two — an omni sibling spells every knob the way its engine
+// does, so it is a modality of that engine, not a third value here.
 type Engine string
 
 // The two engines, exactly as the enum spells them.
@@ -21,6 +24,88 @@ const (
 	EngineVLLM   Engine = "vllm"
 	EngineSGLang Engine = "sglang"
 )
+
+// Modality is the second, orthogonal axis (ADR-083): the engine decides the
+// flag VOCABULARY, the modality decides which program is started. vLLM-Omni
+// is a plugin of vLLM and spells every knob the vLLM way; SGLang-Omni is a
+// separate package that spells them the SGLang way.
+type Modality string
+
+// The two modalities, exactly as the enum spells them.
+const (
+	ModalityText Modality = "text"
+	ModalityOmni Modality = "omni"
+)
+
+// OmniMarker activates vLLM's omni path on the very `vllm serve` its
+// official image entrypoints — which is why the vLLM half needs no
+// invocation of its own (ADR-083 §2).
+const OmniMarker = "--omni"
+
+// runtime is one cell of the (engine, modality) table: everything that
+// depends on the PAIR rather than on the engine alone.
+type runtime struct {
+	// Invocation prefixes the container command; empty means the image's
+	// ENTRYPOINT is already the server (ADR-080 §4, never overridden).
+	Invocation []string
+	// HumanPrefix is what the copy-ready command opens with.
+	HumanPrefix string
+	// Marker is a flag the invocation needs and the form does not carry as
+	// a knob — vLLM's `--omni`. Empty for everything else.
+	Marker string
+	// HealthPath is the readiness signal. Named per runtime because an omni
+	// surface serves /v1/audio/speech, not /v1/chat/completions, and the
+	// only endpoint the four agree on is this one (ADR-083 §5).
+	HealthPath string
+	// ImageRequired refuses a default: no omni runtime has an image the
+	// platform could pin (ADR-083 §4).
+	ImageRequired bool
+}
+
+// runtimes is THE table. The asymmetry between the two omni cells is
+// upstream's: vLLM-Omni is activated by a marker on the same server, while
+// SGLang-Omni is another program entirely (there is no sglang.launch_server
+// in its image).
+var runtimes = map[Engine]map[Modality]runtime{
+	EngineVLLM: {
+		ModalityText: {HumanPrefix: "vllm serve", HealthPath: "/health"},
+		ModalityOmni: {HumanPrefix: "vllm serve", Marker: OmniMarker, HealthPath: "/health", ImageRequired: true},
+	},
+	EngineSGLang: {
+		ModalityText: {
+			Invocation:  []string{"python3", "-m", "sglang.launch_server"},
+			HumanPrefix: "python3 -m sglang.launch_server", HealthPath: "/health",
+		},
+		ModalityOmni: {
+			Invocation:  []string{"sgl-omni", "serve"},
+			HumanPrefix: "sgl-omni serve", HealthPath: "/health", ImageRequired: true,
+		},
+	},
+}
+
+// RuntimeFor resolves the pair, defaulting the way the column does: an
+// unknown or empty engine reads as vLLM, an empty modality as text.
+func RuntimeFor(engine Engine, modality Modality) runtime {
+	byModality, ok := runtimes[engine]
+	if !ok {
+		byModality = runtimes[EngineVLLM]
+	}
+	rt, ok := byModality[modality]
+	if !ok {
+		rt = byModality[ModalityText]
+	}
+	return rt
+}
+
+// HealthPath is the readiness endpoint of a configuration — the job asks the
+// table rather than carrying a literal (ADR-083 §5).
+func HealthPath(cfg Config) string { return RuntimeFor(cfg.Engine, cfg.Modality).HealthPath }
+
+// ImageRequired reports whether this pair refuses to fall back on a default
+// image (ADR-083 §4).
+func ImageRequired(engine Engine, modality Modality) bool {
+	return RuntimeFor(engine, modality).ImageRequired
+}
 
 // ContainerPort is where both engines are told to listen (`--host 0.0.0.0
 // --port …` are platform-managed flags): one constant, so the publish
@@ -39,6 +124,7 @@ type Flag struct {
 // except ModelID and Engine, which are mandatory.
 type Config struct {
 	Engine          Engine
+	Modality        Modality
 	ModelID         string
 	ServedModelName string
 	Quantization    string
@@ -80,6 +166,13 @@ var tier1Flags = map[string]string{
 	"--mem-fraction-static":    "memfrac",
 }
 
+// markerFlags are invocation markers the form carries as a field: they are
+// refused in tier 2 like a tier-1 spelling, and a pasted command carrying
+// one sets the field instead of keeping the flag (ADR-083 §3).
+var markerFlags = map[string]Modality{
+	OmniMarker: ModalityOmni,
+}
+
 // ReservedFlagError names the refused flag and why — the message the API
 // surfaces verbatim on a tier-2 list carrying one.
 func ReservedFlagError(name string) error {
@@ -103,6 +196,9 @@ func ValidateFlags(flags []Flag) error {
 		if _, ok := tier1Flags[f.Name]; ok {
 			return fmt.Errorf("flag %s is a typed field of the form — set it there, not in the flag list", f.Name)
 		}
+		if _, ok := markerFlags[f.Name]; ok {
+			return fmt.Errorf("flag %s is the modality of the form — set it there, not in the flag list", f.Name)
+		}
 	}
 	return nil
 }
@@ -119,10 +215,13 @@ func modelFlag(engine Engine) string {
 // tier 1 in a fixed order, then tier 2 in the operator's order. This is THE
 // renderer (ADR-080 §3bis): container, export and diff all read it.
 func Args(cfg Config, apiKey string) []string {
-	args := []string{
-		modelFlag(cfg.Engine), cfg.ModelID,
-		"--host", "0.0.0.0", "--port", strconv.Itoa(ContainerPort),
+	args := []string{modelFlag(cfg.Engine), cfg.ModelID}
+	// The modality marker rides with the model it qualifies, before the
+	// platform-managed flags (ADR-083 §2).
+	if marker := RuntimeFor(cfg.Engine, cfg.Modality).Marker; marker != "" {
+		args = append(args, marker)
 	}
+	args = append(args, "--host", "0.0.0.0", "--port", strconv.Itoa(ContainerPort))
 	if apiKey != "" {
 		args = append(args, "--api-key", apiKey)
 	}
@@ -163,22 +262,22 @@ func Args(cfg Config, apiKey string) []string {
 	return args
 }
 
-// sglangInvocation is the full command the SGLang image needs — it ships no
-// serving entrypoint (ADR-080 §4).
-var sglangInvocation = []string{"python3", "-m", "sglang.launch_server"}
-
-// ContainerCommand is the per-engine container input contract (ADR-080 §4):
-// the vLLM official image's ENTRYPOINT is the server, so the command is the
-// flags ALONE — a `vllm serve` prefix would reach the server as a bogus
-// argument; the SGLang image ships no serving entrypoint, so the command is
-// the full invocation. The image's own entrypoint is never overridden: the
-// GB10 community builds do their environment setup in theirs.
+// ContainerCommand is the container input contract of the RUNTIME — the
+// pair (engine, modality), ADR-080 §4 as extended by ADR-083 §2. The vLLM
+// official image's ENTRYPOINT is `vllm serve`, so the command is the flags
+// ALONE in both modalities (a prefix would reach the server as a bogus
+// argument, and omni is activated by a marker on that same CLI); the SGLang
+// image ships no serving entrypoint and the SGLang-Omni image ships another
+// program entirely, so both carry their full invocation. The image's own
+// entrypoint is never overridden: the GB10 community builds do their
+// environment setup in theirs.
 func ContainerCommand(cfg Config, apiKey string) []string {
 	args := Args(cfg, apiKey)
-	if cfg.Engine == EngineSGLang {
-		return append(append([]string{}, sglangInvocation...), args...)
+	invocation := RuntimeFor(cfg.Engine, cfg.Modality).Invocation
+	if len(invocation) == 0 {
+		return args
 	}
-	return args
+	return append(append([]string{}, invocation...), args...)
 }
 
 // HumanCommand is the copy-ready form the dashboard shows and the ecosystem
@@ -186,10 +285,7 @@ func ContainerCommand(cfg Config, apiKey string) []string {
 // which the import strips back off.
 func HumanCommand(cfg Config, apiKey string) string {
 	args := Args(cfg, apiKey)
-	prefix := "vllm serve"
-	if cfg.Engine == EngineSGLang {
-		prefix = strings.Join(sglangInvocation, " ")
-	}
+	prefix := RuntimeFor(cfg.Engine, cfg.Modality).HumanPrefix
 	quoted := make([]string, 0, len(args)+1)
 	quoted = append(quoted, prefix)
 	for _, a := range args {
@@ -215,9 +311,10 @@ type ParseResult struct {
 }
 
 // Parse turns a pasted command back into a configuration. The invocation
-// prefix (vllm serve, python3 -m sglang.launch_server, the legacy
-// api_server module) decides the engine when present; flag spellings decide
-// it otherwise. Tier-1 spellings land on their typed fields, everything else
+// prefix (vllm serve, vllm-omni serve, python3 -m sglang.launch_server,
+// sgl-omni serve, the legacy api_server module) decides the runtime when
+// present; flag spellings decide the engine otherwise, and the `--omni`
+// marker the modality. Tier-1 spellings land on their typed fields, everything else
 // keeps its order in tier 2, reserved flags drop with a notice.
 func Parse(input string) (ParseResult, error) {
 	tokens, err := shellSplit(input)
@@ -229,7 +326,7 @@ func Parse(input string) (ParseResult, error) {
 	}
 
 	var res ParseResult
-	tokens, res.Config.Engine = stripInvocation(tokens)
+	tokens, res.Config.Engine, res.Config.Modality = stripInvocation(tokens)
 
 	for i := 0; i < len(tokens); i++ {
 		tok := tokens[i]
@@ -252,6 +349,12 @@ func Parse(input string) (ParseResult, error) {
 			}
 			continue
 		}
+		if modality, ok := markerFlags[name]; ok {
+			// A marker is meaning the form has a field for: it is consumed,
+			// not dropped, and never lands in tier 2 (ADR-083 §3).
+			res.Config.Modality = modality
+			continue
+		}
 		if why, ok := reservedFlags[name]; ok {
 			res.Notices = append(res.Notices, fmt.Sprintf("%s dropped: %s", name, why))
 			continue
@@ -261,6 +364,9 @@ func Parse(input string) (ParseResult, error) {
 
 	if res.Config.Engine == "" {
 		res.Config.Engine = guessEngine(res.Config)
+	}
+	if res.Config.Modality == "" {
+		res.Config.Modality = ModalityText
 	}
 	if res.Config.ModelID == "" {
 		return ParseResult{}, fmt.Errorf("no model in the command (--model, --model-path, or vllm serve's positional form)")
@@ -312,25 +418,32 @@ func (c *Config) setTier1(field, name, value string) error {
 }
 
 // stripInvocation removes a recognized human/legacy invocation prefix and
-// reports the engine it names.
-func stripInvocation(tokens []string) ([]string, Engine) {
+// reports the runtime it names. An empty modality means the prefix does not
+// decide it — vLLM's does not, since omni rides on the same `vllm serve`
+// behind the `--omni` marker the loop above consumes.
+func stripInvocation(tokens []string) ([]string, Engine, Modality) {
 	joined := strings.Join(tokens, " ")
 	for _, p := range []struct {
-		prefix string
-		engine Engine
+		prefix   string
+		engine   Engine
+		modality Modality
 	}{
-		{"vllm serve", EngineVLLM},
-		{"python3 -m vllm.entrypoints.openai.api_server", EngineVLLM},
-		{"python -m vllm.entrypoints.openai.api_server", EngineVLLM},
-		{"python3 -m sglang.launch_server", EngineSGLang},
-		{"python -m sglang.launch_server", EngineSGLang},
+		{"vllm serve", EngineVLLM, ""},
+		{"python3 -m vllm.entrypoints.openai.api_server", EngineVLLM, ""},
+		{"python -m vllm.entrypoints.openai.api_server", EngineVLLM, ""},
+		// vLLM-Omni's own CLI: the platform renders the marker form, but the
+		// ecosystem trades in both and a paste must not care.
+		{"vllm-omni serve", EngineVLLM, ModalityOmni},
+		{"python3 -m sglang.launch_server", EngineSGLang, ModalityText},
+		{"python -m sglang.launch_server", EngineSGLang, ModalityText},
+		{"sgl-omni serve", EngineSGLang, ModalityOmni},
 	} {
 		if joined == p.prefix || strings.HasPrefix(joined, p.prefix+" ") {
 			n := len(strings.Fields(p.prefix))
-			return tokens[n:], p.engine
+			return tokens[n:], p.engine, p.modality
 		}
 	}
-	return tokens, ""
+	return tokens, "", ""
 }
 
 // guessEngine decides from flag spellings when no invocation named one; the
@@ -384,11 +497,15 @@ func shellSplit(s string) ([]string, error) {
 	return tokens, nil
 }
 
-// ReservedFlagNames lists the platform-managed flags, sorted — for the API
-// documentation and the UI hint.
+// ReservedFlagNames lists the flags tier 2 refuses by name — the
+// platform-managed ones and the invocation markers the form carries as a
+// field — sorted, for the API documentation and the UI hint.
 func ReservedFlagNames() []string {
-	names := make([]string, 0, len(reservedFlags))
+	names := make([]string, 0, len(reservedFlags)+len(markerFlags))
 	for n := range reservedFlags {
+		names = append(names, n)
+	}
+	for n := range markerFlags {
 		names = append(names, n)
 	}
 	sort.Strings(names)

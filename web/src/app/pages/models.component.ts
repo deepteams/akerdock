@@ -75,6 +75,9 @@ type Model = components['schemas']['Model'];
                     <span class="akd-badge akd-badge--accent akd-badge--mono">{{
                       model.engine
                     }}</span>
+                    @if (model.modality === 'omni') {
+                      <span class="akd-badge akd-badge--mono">omni</span>
+                    }
                   </td>
                   <td class="akd-mono truncate">{{ model.model_id }}</td>
                   <td>

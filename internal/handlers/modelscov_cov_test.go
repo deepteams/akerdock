@@ -486,3 +486,91 @@ func TestModelscovMemoryFractionArithmetic(t *testing.T) {
 		}
 	}
 }
+
+// The omni modality (ADR-083): an orthogonal axis that changes the
+// invocation, requires an explicit image, and stays immutable.
+func TestModelscovOmniModality(t *testing.T) {
+	create := func(t *testing.T, body string, want int) *rescovDB {
+		t.Helper()
+		a, db := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.CreateModel(rec, rescovReq(http.MethodPost, "/models", body), api.CreateModelParams{})
+		rescovWant(t, rec, want)
+		return db
+	}
+	base := `{"name":"music","engine":"sglang","model_id":"MiniMaxAI/MiniMax-Music3","project_uuid":"` + fixtureUUID +
+		`","environment_uuid":"` + fixtureUUID + `","server_uuid":"` + fixtureUUID + `","published_port":18001`
+
+	t.Run("an omni model without an image is refused by field name", func(t *testing.T) {
+		db := create(t, base+`,"modality":"omni"}`, http.StatusUnprocessableEntity)
+		if len(db.lastArgs["CreateModelRow"]) != 0 {
+			t.Fatal("nothing must reach the insert")
+		}
+	})
+
+	t.Run("an unknown modality is refused", func(t *testing.T) {
+		create(t, base+`,"modality":"video","image":"local/sglang-omni:0.1.3"}`, http.StatusUnprocessableEntity)
+	})
+
+	t.Run("with its image, the modality reaches the insert", func(t *testing.T) {
+		db := create(t, base+`,"modality":"omni","image":"local/sglang-omni:0.1.3"}`, http.StatusCreated)
+		var saw bool
+		for _, arg := range db.lastArgs["CreateModelRow"] {
+			if m, ok := arg.(store.InferenceModality); ok && m == store.InferenceModalityOmni {
+				saw = true
+			}
+		}
+		if !saw {
+			t.Fatalf("the modality never reached the insert: %v", db.lastArgs["CreateModelRow"])
+		}
+	})
+
+	t.Run("a text model still resolves its per-engine default", func(t *testing.T) {
+		create(t, base+`}`, http.StatusCreated)
+	})
+
+	t.Run("an omni model may not have its image cleared", func(t *testing.T) {
+		a, db := rescovAPI(t)
+		db.modality = string(store.InferenceModalityOmni)
+		rec := httptest.NewRecorder()
+		a.UpdateModel(rec, rescovReq(http.MethodPatch, "/models/"+fixtureUUID, `{"image":null}`),
+			fixtureUUID, api.UpdateModelParams{IfMatch: `"1"`})
+		rescovWant(t, rec, http.StatusUnprocessableEntity)
+
+		rec = httptest.NewRecorder()
+		a.UpdateModel(rec, rescovReq(http.MethodPatch, "/models/"+fixtureUUID, `{"image":"local/sglang-omni:0.1.4"}`),
+			fixtureUUID, api.UpdateModelParams{IfMatch: `"1"`})
+		rescovWant(t, rec, http.StatusOK)
+	})
+
+	t.Run("the preview renders the runtime the pair names", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.PreviewModelCommand(rec, rescovReq(http.MethodPost, "/models/command-preview",
+			`{"engine":"sglang","modality":"omni","model_id":"MiniMaxAI/MiniMax-Music3"}`))
+		rescovWant(t, rec, http.StatusOK)
+		var out api.ModelCommand
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(out.Command, "sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3") {
+			t.Fatalf("command = %q", out.Command)
+		}
+	})
+
+	t.Run("the import reads the modality back off a pasted command", func(t *testing.T) {
+		a, _ := rescovAPI(t)
+		rec := httptest.NewRecorder()
+		a.ParseModelCommand(rec, rescovReq(http.MethodPost, "/models/parse-command",
+			`{"command":"sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000"}`))
+		rescovWant(t, rec, http.StatusOK)
+		var out api.ModelParseResult
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Engine != api.ModelParseResultEngineSglang || out.Modality != api.ModelParseResultModalityOmni ||
+			out.ModelId != "MiniMaxAI/MiniMax-Music3" {
+			t.Fatalf("parsed = %+v", out)
+		}
+	})
+}

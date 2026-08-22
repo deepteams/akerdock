@@ -90,6 +90,22 @@ type HubModel = components['schemas']['HubModel'];
                 </select>
               </div>
             </div>
+            <div class="akd-field">
+              <label class="akd-field__label" for="mo-modality">Modality</label>
+              <div class="akd-select">
+                <select
+                  id="mo-modality"
+                  name="modality"
+                  class="akd-input"
+                  [(ngModel)]="modality"
+                  (ngModelChange)="preview.set(null)"
+                  [disabled]="busy()"
+                >
+                  <option value="text">Text</option>
+                  <option value="omni">Omni (speech, audio, image, video)</option>
+                </select>
+              </div>
+            </div>
             <div class="akd-field grow">
               <label class="akd-field__label" for="mo-name">Name</label>
               <input
@@ -216,6 +232,32 @@ type HubModel = components['schemas']['HubModel'];
                 [(ngModel)]="tensorParallel"
                 [disabled]="busy()"
               />
+            </div>
+          </div>
+
+          <div class="row">
+            <div class="akd-field grow">
+              <label class="akd-field__label" for="mo-image">Image</label>
+              <input
+                id="mo-image"
+                name="image"
+                class="akd-input akd-input--mono"
+                [placeholder]="
+                  modality === 'omni'
+                    ? 'required — e.g. local/sglang-omni:0.1.3'
+                    : 'engine default for the server architecture'
+                "
+                [(ngModel)]="image"
+                [disabled]="busy()"
+              />
+              <span class="akd-field__hint">
+                @if (modality === 'omni') {
+                  An omni model needs an explicit image: neither vLLM-Omni nor SGLang-Omni publishes
+                  one the platform can pin (ADR-083).
+                } @else {
+                  Leave empty to use the pinned per-engine, per-architecture default.
+                }
+              </span>
             </div>
           </div>
 
@@ -439,6 +481,10 @@ export class ModelNewComponent {
   );
 
   protected engine: 'vllm' | 'sglang' = 'vllm';
+  // The second axis (ADR-083): the engine spells the flags, the modality
+  // decides which program is started — and omni has no image to default to.
+  protected modality: 'text' | 'omni' = 'text';
+  protected image = '';
   protected name = '';
   protected modelId = '';
   protected pasted = '';
@@ -472,6 +518,7 @@ export class ModelNewComponent {
   }
 
   protected valid(): boolean {
+    if (this.modality === 'omni' && !this.image.trim()) return false;
     return !!(
       this.name.trim() &&
       this.modelId.trim() &&
@@ -573,6 +620,7 @@ export class ModelNewComponent {
     try {
       const parsed = await this.api.client().parseModelCommand({ command: this.pasted });
       this.engine = parsed.engine;
+      this.modality = parsed.modality;
       this.modelId = parsed.model_id;
       this.quantization = parsed.quantization ?? '';
       this.maxModelLen = parsed.max_model_len ?? null;
@@ -592,6 +640,7 @@ export class ModelNewComponent {
     try {
       const res = await this.api.client().previewModelCommand({
         engine: this.engine,
+        modality: this.modality,
         model_id: this.modelId.trim(),
         served_model_name: null,
         quantization: this.quantization.trim() || null,
@@ -614,6 +663,8 @@ export class ModelNewComponent {
       const created = await this.api.client().createModel({
         name: this.name.trim(),
         engine: this.engine,
+        modality: this.modality,
+        image: this.image.trim() || null,
         model_id: this.modelId.trim(),
         quantization: this.quantization.trim() || null,
         max_model_len: this.maxModelLen,

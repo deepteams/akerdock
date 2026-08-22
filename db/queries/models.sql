@@ -1,11 +1,12 @@
 -- Models: first-class inference resources (ADR-080). The API key is
 -- enveloped like a database credential; engine_flags is the ORDERED tier-2
 -- jsonb list; the port and the server are immutable in v1 (a moved model is
--- a new model — the weights cache is server-scoped).
+-- a new model — the weights cache is server-scoped), as is the modality
+-- (ADR-083: it decides the image and the process).
 
 -- name: CreateModelRow :exec
-INSERT INTO models (id, engine, model_id, served_model_name, quantization, max_model_len, tensor_parallel_size, memory_fraction, image, image_tag, engine_flags, api_key_enc, shm_size_mb, published_port, server_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15);
+INSERT INTO models (id, engine, modality, model_id, served_model_name, quantization, max_model_len, tensor_parallel_size, memory_fraction, image, image_tag, engine_flags, api_key_enc, shm_size_mb, published_port, server_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16);
 
 -- name: GetModelByUUID :one
 SELECT sqlc.embed(r), sqlc.embed(m),

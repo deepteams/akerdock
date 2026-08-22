@@ -12310,7 +12310,9 @@ components:
         One tier-2 entry (ADR-080 §1): an upstream engine flag preserved
         verbatim, in the operator's order. No value means a boolean flag.
         Reserved flags (--host, --port, --api-key, --download-dir,
-        --hf-token) and the typed knobs' own spellings are refused by name.
+        --hf-token), the invocation markers the form carries as a field
+        (--omni, ADR-083) and the typed knobs' own spellings are refused by
+        name.
       required: [flag]
       properties:
         flag:
@@ -12331,6 +12333,16 @@ components:
         engine:
           type: string
           enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
         model_id:
           type: string
           description: Hugging Face model reference.
@@ -12453,7 +12465,7 @@ components:
     Model:
       type: object
       description: An inference model resource (ADR-080).
-      required: [uuid, name, engine, model_id, server_uuid, published_port, status, created_at, version]
+      required: [uuid, name, engine, modality, model_id, server_uuid, published_port, status, created_at, version]
       properties:
         uuid:
           type: string
@@ -12466,6 +12478,16 @@ components:
         engine:
           type: string
           enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
         model_id:
           type: string
         served_model_name:
@@ -12585,6 +12607,16 @@ components:
         engine:
           type: string
           enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
         model_id:
           type: string
         served_model_name:
@@ -12609,11 +12641,21 @@ components:
             $ref: "#/components/schemas/EngineFlag"
     ModelParseResult:
       type: object
-      required: [engine, model_id, engine_flags, notices]
+      required: [engine, modality, model_id, engine_flags, notices]
       properties:
         engine:
           type: string
           enum: [vllm, sglang]
+        modality:
+          type: string
+          enum: [text, omni]
+          default: text
+          description: >
+            Serving modality (ADR-083). `text` is the engine's own server;
+            `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech,
+            audio, image and video models. The engine still decides every
+            flag spelling; the modality decides the invocation, requires an
+            explicit `image`, and is immutable after creation.
         model_id:
           type: string
         served_model_name:

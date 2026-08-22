@@ -3,7 +3,7 @@ id: models
 title: Models
 icon: cpu
 group: Run and debug
-summary: Serving vLLM and SGLang on a GPU server — parameters, the command, the swap.
+summary: Serving vLLM and SGLang, text or omni, on a GPU server — parameters, the command, the swap.
 order: 4
 permission: models:read
 gates:
@@ -39,10 +39,39 @@ the **engine flags** list, in order. Platform-managed flags (`--port`, `--api-ke
 `--host`, `--download-dir`, `--hf-token`) are refused there by name: the platform sets them.
 
 Two shortcuts speak the ecosystem's language. **Paste a command** from any playbook or blog
-and the form fills itself — managed flags are taken over, each with a notice. **Show the
-command** renders the exact line the container will run, by the same code that runs it.
+and the form fills itself — managed flags are taken over, each with a notice, and the
+invocation names the runtime (`vllm serve`, `vllm-omni serve`, `python3 -m
+sglang.launch_server`, `sgl-omni serve`). **Show the command** renders the exact line the
+container will run, by the same code that runs it.
 On the model's page the command is shown masked, copy-ready; export → paste back is
 guaranteed to reproduce the same configuration.
+
+## Text or omni
+
+**Modality** is the second choice, beside the engine. `text` is the engine's own server, the
+default, and what you want for an LLM. `omni` is its sibling for speech, audio, image and
+video models — vLLM-Omni beside vLLM, SGLang-Omni beside SGLang — the runtimes that serve
+`MiniMaxAI/MiniMax-Music3`, `Qwen3-TTS` or `Qwen-Image` on `/v1/audio/speech` and
+`/v1/images/generations` instead of `/v1/chat/completions`.
+
+The engine still decides how every parameter is spelled: an omni SGLang model gets
+`--mem-fraction-static` and `--context-length`, an omni vLLM model `--gpu-memory-utilization`
+and `--max-model-len`. What the modality changes is the program started — `sgl-omni serve`
+for SGLang-Omni, which is a separate package, and the `--omni` marker for vLLM-Omni, which is
+a plugin of the same server. `--omni` therefore belongs to the modality, not to the flag
+list, and is refused there like any managed flag; a pasted command carrying it fills the
+field instead.
+
+An omni model **requires an image**: neither project publishes one this platform could pin,
+so the field is not optional there and creation refuses without it. Build it from the
+runtime's own installation instructions and pin it — a `:dev` tag moves under you.
+
+The modality, like the engine, the server and the port, is fixed at creation.
+
+> **Note** — One model is one container. The multi-process topologies these runtimes
+> document (`--stage-id`, `--headless`, a separate router) coordinate several servers and are
+> not something a model resource can express; a single-container multi-stage setup works
+> because it is one process.
 
 ## Lifecycle and the swap
 

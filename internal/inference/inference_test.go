@@ -6,9 +6,11 @@ import (
 	"testing"
 )
 
-func fullConfig(engine Engine) Config {
+func fullConfig(engine Engine) Config { return fullConfigFor(engine, ModalityText) }
+
+func fullConfigFor(engine Engine, modality Modality) Config {
 	return Config{
-		Engine: engine, ModelID: "meta-llama/Llama-3.1-8B-Instruct",
+		Engine: engine, Modality: modality, ModelID: "meta-llama/Llama-3.1-8B-Instruct",
 		ServedModelName: "llama", Quantization: "awq", MaxModelLen: 8192,
 		TensorParallel: 2, MemoryFraction: 0.85,
 		Flags: []Flag{
@@ -176,6 +178,7 @@ func TestValidateFlags(t *testing.T) {
 		{Name: "--port", Value: "9"},
 		{Name: "--model", Value: "y"},
 		{Name: "--gpu-memory-utilization", Value: "0.5"},
+		{Name: OmniMarker},
 		{Name: "oops"},
 	} {
 		if err := ValidateFlags([]Flag{bad}); err == nil {
@@ -184,5 +187,139 @@ func TestValidateFlags(t *testing.T) {
 	}
 	if len(ReservedFlagNames()) == 0 {
 		t.Fatal("the reserved list must be documented")
+	}
+}
+
+// The four runtimes (ADR-083 §2): the modality decides the invocation, the
+// engine still decides every flag spelling.
+func TestOmniRuntimeContract(t *testing.T) {
+	t.Run("vLLM omni stays flags-alone and carries the marker", func(t *testing.T) {
+		cmd := ContainerCommand(fullConfigFor(EngineVLLM, ModalityOmni), "sk-key")
+		if cmd[0] != "--model" {
+			t.Fatalf("the vLLM image entrypoints `vllm serve`: the command is flags alone, got %q", cmd[0])
+		}
+		joined := strings.Join(cmd, " ")
+		for _, want := range []string{
+			"--model meta-llama/Llama-3.1-8B-Instruct " + OmniMarker,
+			"--max-model-len 8192", "--tensor-parallel-size 2", "--gpu-memory-utilization 0.85",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("vLLM omni command misses %q:\n%s", want, joined)
+			}
+		}
+		if human := HumanCommand(fullConfigFor(EngineVLLM, ModalityOmni), ""); !strings.HasPrefix(human, "vllm serve --model ") ||
+			!strings.Contains(human, " "+OmniMarker+" ") {
+			t.Fatalf("human command = %s", human)
+		}
+	})
+
+	t.Run("SGLang omni is another program entirely", func(t *testing.T) {
+		cmd := ContainerCommand(fullConfigFor(EngineSGLang, ModalityOmni), "sk-key")
+		if got := strings.Join(cmd[:2], " "); got != "sgl-omni serve" {
+			t.Fatalf("SGLang omni invocation = %q, want `sgl-omni serve`", got)
+		}
+		joined := strings.Join(cmd, " ")
+		for _, want := range []string{
+			"--model-path meta-llama/Llama-3.1-8B-Instruct", "--context-length 8192",
+			"--tp-size 2", "--mem-fraction-static 0.85",
+		} {
+			if !strings.Contains(joined, want) {
+				t.Fatalf("SGLang omni misses its engine's spelling %q:\n%s", want, joined)
+			}
+		}
+		if strings.Contains(joined, "sglang.launch_server") || strings.Contains(joined, OmniMarker) {
+			t.Fatalf("SGLang omni carries another runtime's invocation:\n%s", joined)
+		}
+	})
+
+	t.Run("text runtimes are untouched", func(t *testing.T) {
+		if got := ContainerCommand(fullConfig(EngineVLLM), ""); strings.Contains(strings.Join(got, " "), OmniMarker) {
+			t.Fatalf("a text model must carry no marker: %v", got)
+		}
+		if got := strings.Join(ContainerCommand(fullConfig(EngineSGLang), "")[:3], " "); got != "python3 -m sglang.launch_server" {
+			t.Fatalf("SGLang text invocation drifted: %q", got)
+		}
+	})
+
+	t.Run("the round-trip is the identity over the four pairs", func(t *testing.T) {
+		for _, engine := range []Engine{EngineVLLM, EngineSGLang} {
+			for _, modality := range []Modality{ModalityText, ModalityOmni} {
+				cfg := fullConfigFor(engine, modality)
+				res, err := Parse(HumanCommand(cfg, "sk-secret"))
+				if err != nil {
+					t.Fatalf("%s/%s: %v", engine, modality, err)
+				}
+				if !reflect.DeepEqual(res.Config, cfg) {
+					t.Fatalf("%s/%s drifted:\n got %+v\nwant %+v", engine, modality, res.Config, cfg)
+				}
+				if len(res.Notices) != 3 {
+					t.Fatalf("%s/%s: managed flags owe their notices, got %v", engine, modality, res.Notices)
+				}
+			}
+		}
+	})
+}
+
+// A marker is consumed into the field, never dropped and never kept as a
+// flag (ADR-083 §3) — including on the forms the ecosystem trades in.
+func TestOmniMarkerIsConsumed(t *testing.T) {
+	res, err := Parse("vllm serve org/m " + OmniMarker + " --enforce-eager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Config.Modality != ModalityOmni || res.Config.Engine != EngineVLLM {
+		t.Fatalf("config = %+v", res.Config)
+	}
+	if len(res.Config.Flags) != 1 || res.Config.Flags[0].Name != "--enforce-eager" {
+		t.Fatalf("the marker leaked into tier 2: %+v", res.Config.Flags)
+	}
+	if len(res.Notices) != 0 {
+		t.Fatalf("a consumed marker owes no notice: %v", res.Notices)
+	}
+
+	// The command that motivated the ADR, pasted verbatim.
+	res, err = Parse("sgl-omni serve --model-path MiniMaxAI/MiniMax-Music3 --port 8000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Config.Engine != EngineSGLang || res.Config.Modality != ModalityOmni ||
+		res.Config.ModelID != "MiniMaxAI/MiniMax-Music3" {
+		t.Fatalf("config = %+v", res.Config)
+	}
+	if len(res.Notices) != 1 || !strings.Contains(res.Notices[0], "--port") {
+		t.Fatalf("notices = %v", res.Notices)
+	}
+
+	// vLLM-Omni's own CLI names the runtime by itself.
+	res, err = Parse("vllm-omni serve org/m")
+	if err != nil || res.Config.Engine != EngineVLLM || res.Config.Modality != ModalityOmni {
+		t.Fatalf("config = %+v, err = %v", res.Config, err)
+	}
+
+	// An unqualified command is text: the modality is never guessed.
+	res, err = Parse("--model org/m")
+	if err != nil || res.Config.Modality != ModalityText {
+		t.Fatalf("config = %+v, err = %v", res.Config, err)
+	}
+}
+
+// The table answers the two questions the job and the API ask of a pair
+// (ADR-083 §4, §5), and defaults the way the column does.
+func TestRuntimeTableAnswers(t *testing.T) {
+	if !ImageRequired(EngineSGLang, ModalityOmni) || !ImageRequired(EngineVLLM, ModalityOmni) {
+		t.Fatal("an omni runtime has no image to pin: the override is required")
+	}
+	if ImageRequired(EngineVLLM, ModalityText) || ImageRequired(EngineSGLang, ModalityText) {
+		t.Fatal("a text runtime keeps its per-engine default")
+	}
+	if got := HealthPath(Config{Engine: EngineSGLang, Modality: ModalityOmni}); got != "/health" {
+		t.Fatalf("health path = %q", got)
+	}
+	// Zero values read as the column's defaults rather than falling through.
+	if got := HumanCommand(Config{ModelID: "org/m"}, ""); !strings.HasPrefix(got, "vllm serve ") {
+		t.Fatalf("zero-value config = %q", got)
+	}
+	if ImageRequired("nonsense", "nonsense") {
+		t.Fatal("an unknown pair must fall back on the text default, not require an image")
 	}
 }

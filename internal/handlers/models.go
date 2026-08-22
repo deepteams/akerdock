@@ -113,12 +113,23 @@ func engineFlagsFromAPI(in *[]api.EngineFlag) []inference.Flag {
 	return flags
 }
 
+// modalityOrText reads an optional modality off a request body: absent means
+// what the column defaults to (ADR-083 §1). Generic because the contract
+// spells one enum per schema and they are the same two values.
+func modalityOrText[T ~string](in *T) inference.Modality {
+	if in == nil || *in == "" {
+		return inference.ModalityText
+	}
+	return inference.Modality(*in)
+}
+
 func (a *API) modelToAPI(r *http.Request, row modelRow) api.Model {
 	m := api.Model{
 		Uuid:               ptr(uuidString(row.Resource.Uuid)),
 		Name:               row.Resource.Name,
 		Description:        row.Resource.Description,
 		Engine:             api.ModelEngine(row.Model.Engine),
+		Modality:           api.ModelModality(row.Model.Modality),
 		ModelId:            row.Model.ModelID,
 		ServedModelName:    row.Model.ServedModelName,
 		Quantization:       row.Model.Quantization,
@@ -241,6 +252,19 @@ func (a *API) CreateModel(w http.ResponseWriter, r *http.Request, params api.Cre
 	if body.Engine != api.ModelCreateEngineVllm && body.Engine != api.ModelCreateEngineSglang {
 		details = append(details, api.ErrorDetail{Field: ptr("engine"), Code: ptr("out_of_range"), Message: "engine must be vllm or sglang"})
 	}
+	modality := modalityOrText(body.Modality)
+	if modality != inference.ModalityText && modality != inference.ModalityOmni {
+		details = append(details, api.ErrorDetail{Field: ptr("modality"), Code: ptr("out_of_range"), Message: "modality must be text or omni"})
+	}
+	// An omni runtime has no image the platform could pin (ADR-083 §4): the
+	// override is required rather than defaulted to something that rots.
+	if inference.ImageRequired(inference.Engine(body.Engine), modality) &&
+		(body.Image == nil || strings.TrimSpace(*body.Image) == "") {
+		details = append(details, api.ErrorDetail{
+			Field: ptr("image"), Code: ptr("required"),
+			Message: "an omni model needs an explicit image: neither vLLM-Omni nor SGLang-Omni publishes one the platform can pin",
+		})
+	}
 	flags := engineFlagsFromAPI(body.EngineFlags)
 	if err := inference.ValidateFlags(flags); err != nil {
 		details = append(details, api.ErrorDetail{Field: ptr("engine_flags"), Code: ptr("invalid"), Message: err.Error()})
@@ -356,7 +380,8 @@ func (a *API) CreateModel(w http.ResponseWriter, r *http.Request, params api.Cre
 		shm = ptr(int32(*body.ShmSizeMb))
 	}
 	if err := qtx.CreateModelRow(r.Context(), store.CreateModelRowParams{
-		ID: resource.ID, Engine: store.InferenceEngine(body.Engine), ModelID: strings.TrimSpace(body.ModelId),
+		ID: resource.ID, Engine: store.InferenceEngine(body.Engine),
+		Modality: store.InferenceModality(modality), ModelID: strings.TrimSpace(body.ModelId),
 		ServedModelName: body.ServedModelName, Quantization: body.Quantization,
 		MaxModelLen: maxLen, TensorParallelSize: tensorParallel, MemoryFraction: memFrac,
 		Image: body.Image, ImageTag: body.ImageTag, EngineFlags: flagsJSON,
@@ -479,6 +504,16 @@ func (a *API) UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid api.
 	}
 	if patch.Has("image") {
 		next.Image = body.Image
+	}
+	// The modality is immutable, and an omni one requires its image for as
+	// long as it lives (ADR-083 §4) — clearing it here would hit the CHECK.
+	if inference.ImageRequired(inference.Engine(row.Model.Engine), inference.Modality(row.Model.Modality)) &&
+		(next.Image == nil || strings.TrimSpace(*next.Image) == "") {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr("image"), Code: ptr("required"),
+			Message: "an omni model needs an explicit image: neither vLLM-Omni nor SGLang-Omni publishes one the platform can pin",
+		}})
+		return
 	}
 	if patch.Has("image_tag") {
 		next.ImageTag = body.ImageTag
@@ -962,9 +997,10 @@ func (a *API) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := inference.Config{
-		Engine:  inference.Engine(body.Engine),
-		ModelID: strings.TrimSpace(body.ModelId),
-		Flags:   flags,
+		Engine:   inference.Engine(body.Engine),
+		Modality: inference.Modality(modalityOrText(body.Modality)),
+		ModelID:  strings.TrimSpace(body.ModelId),
+		Flags:    flags,
 	}
 	if body.ServedModelName != nil {
 		cfg.ServedModelName = *body.ServedModelName
@@ -1006,8 +1042,9 @@ func (a *API) ParseModelCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := api.ModelParseResult{
-		Engine:  api.ModelParseResultEngine(res.Config.Engine),
-		ModelId: res.Config.ModelID,
+		Engine:   api.ModelParseResultEngine(res.Config.Engine),
+		Modality: api.ModelParseResultModality(res.Config.Modality),
+		ModelId:  res.Config.ModelID,
 		Notices: res.Notices,
 	}
 	if out.Notices == nil {

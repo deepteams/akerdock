@@ -47,6 +47,9 @@ type rescovDB struct {
 	// what the ADR-082 guard's arithmetic needs to be steerable.
 	floatFill *float64
 	engine    string
+	// modality steers the inference modality a scanned model row carries —
+	// the ADR-083 axis, which decides whether the image is required.
+	modality  string
 	errOn     map[string]error
 	errAt     map[string]int // fail only the Nth call of that query
 	noRowsOn  map[string]bool
@@ -141,6 +144,10 @@ func (db *rescovDB) QueryRow(_ context.Context, sql string, args ...any) pgx.Row
 }
 
 func rescovFill(db *rescovDB, dest any, zero bool) error {
+	if d, ok := dest.(*store.InferenceModality); ok && db.modality != "" {
+		*d = store.InferenceModality(db.modality)
+		return nil
+	}
 	if d, ok := dest.(**store.DbEngine); ok && db.engine != "" {
 		e := store.DbEngine(db.engine)
 		*d = &e

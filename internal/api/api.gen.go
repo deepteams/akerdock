@@ -1204,6 +1204,24 @@ func (e ModelEngine) Valid() bool {
 	}
 }
 
+// Defines values for ModelModality.
+const (
+	ModelModalityOmni ModelModality = "omni"
+	ModelModalityText ModelModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelModality enum.
+func (e ModelModality) Valid() bool {
+	switch e {
+	case ModelModalityOmni:
+		return true
+	case ModelModalityText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ModelCommandPreviewRequestEngine.
 const (
 	ModelCommandPreviewRequestEngineSglang ModelCommandPreviewRequestEngine = "sglang"
@@ -1216,6 +1234,24 @@ func (e ModelCommandPreviewRequestEngine) Valid() bool {
 	case ModelCommandPreviewRequestEngineSglang:
 		return true
 	case ModelCommandPreviewRequestEngineVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCommandPreviewRequestModality.
+const (
+	ModelCommandPreviewRequestModalityOmni ModelCommandPreviewRequestModality = "omni"
+	ModelCommandPreviewRequestModalityText ModelCommandPreviewRequestModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelCommandPreviewRequestModality enum.
+func (e ModelCommandPreviewRequestModality) Valid() bool {
+	switch e {
+	case ModelCommandPreviewRequestModalityOmni:
+		return true
+	case ModelCommandPreviewRequestModalityText:
 		return true
 	default:
 		return false
@@ -1240,6 +1276,24 @@ func (e ModelCreateEngine) Valid() bool {
 	}
 }
 
+// Defines values for ModelCreateModality.
+const (
+	ModelCreateModalityOmni ModelCreateModality = "omni"
+	ModelCreateModalityText ModelCreateModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelCreateModality enum.
+func (e ModelCreateModality) Valid() bool {
+	switch e {
+	case ModelCreateModalityOmni:
+		return true
+	case ModelCreateModalityText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ModelParseResultEngine.
 const (
 	ModelParseResultEngineSglang ModelParseResultEngine = "sglang"
@@ -1252,6 +1306,24 @@ func (e ModelParseResultEngine) Valid() bool {
 	case ModelParseResultEngineSglang:
 		return true
 	case ModelParseResultEngineVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelParseResultModality.
+const (
+	ModelParseResultModalityOmni ModelParseResultModality = "omni"
+	ModelParseResultModalityText ModelParseResultModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelParseResultModality enum.
+func (e ModelParseResultModality) Valid() bool {
+	switch e {
+	case ModelParseResultModalityOmni:
+		return true
+	case ModelParseResultModalityText:
 		return true
 	default:
 		return false
@@ -3841,7 +3913,7 @@ type EncryptionStatus struct {
 	RotationJobUuid *string `json:"rotation_job_uuid,omitempty"`
 }
 
-// EngineFlag One tier-2 entry (ADR-080 §1): an upstream engine flag preserved verbatim, in the operator's order. No value means a boolean flag. Reserved flags (--host, --port, --api-key, --download-dir, --hf-token) and the typed knobs' own spellings are refused by name.
+// EngineFlag One tier-2 entry (ADR-080 §1): an upstream engine flag preserved verbatim, in the operator's order. No value means a boolean flag. Reserved flags (--host, --port, --api-key, --download-dir, --hf-token), the invocation markers the form carries as a field (--omni, ADR-083) and the typed knobs' own spellings are refused by name.
 type EngineFlag struct {
 	// Flag The flag as the engine spells it (`--like-this`).
 	Flag  string  `json:"flag"`
@@ -4524,9 +4596,12 @@ type Model struct {
 	ImageTag        *string       `json:"image_tag,omitempty"`
 	MaxModelLen     *int          `json:"max_model_len,omitempty"`
 	MemoryFraction  *float64      `json:"memory_fraction,omitempty"`
-	ModelId         string        `json:"model_id"`
-	Name            string        `json:"name"`
-	ObservedAt      *time.Time    `json:"observed_at,omitempty"`
+
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality   ModelModality `json:"modality"`
+	ModelId    string        `json:"model_id"`
+	Name       string        `json:"name"`
+	ObservedAt *time.Time    `json:"observed_at,omitempty"`
 
 	// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
 	ObservedStatus  *ObservedStatus `json:"observed_status,omitempty"`
@@ -4550,6 +4625,9 @@ type Model struct {
 // ModelEngine defines model for Model.Engine.
 type ModelEngine string
 
+// ModelModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelModality string
+
 // ModelCommand defines model for ModelCommand.
 type ModelCommand struct {
 	// Command The human serve command, by the deployment's renderer.
@@ -4561,18 +4639,24 @@ type ModelCommand struct {
 
 // ModelCommandPreviewRequest defines model for ModelCommandPreviewRequest.
 type ModelCommandPreviewRequest struct {
-	Engine             ModelCommandPreviewRequestEngine `json:"engine"`
-	EngineFlags        *[]EngineFlag                    `json:"engine_flags,omitempty"`
-	MaxModelLen        *int                             `json:"max_model_len,omitempty"`
-	MemoryFraction     *float64                         `json:"memory_fraction,omitempty"`
-	ModelId            string                           `json:"model_id"`
-	Quantization       *string                          `json:"quantization,omitempty"`
-	ServedModelName    *string                          `json:"served_model_name,omitempty"`
-	TensorParallelSize *int                             `json:"tensor_parallel_size,omitempty"`
+	Engine         ModelCommandPreviewRequestEngine `json:"engine"`
+	EngineFlags    *[]EngineFlag                    `json:"engine_flags,omitempty"`
+	MaxModelLen    *int                             `json:"max_model_len,omitempty"`
+	MemoryFraction *float64                         `json:"memory_fraction,omitempty"`
+
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality           *ModelCommandPreviewRequestModality `json:"modality,omitempty"`
+	ModelId            string                              `json:"model_id"`
+	Quantization       *string                             `json:"quantization,omitempty"`
+	ServedModelName    *string                             `json:"served_model_name,omitempty"`
+	TensorParallelSize *int                                `json:"tensor_parallel_size,omitempty"`
 }
 
 // ModelCommandPreviewRequestEngine defines model for ModelCommandPreviewRequest.Engine.
 type ModelCommandPreviewRequestEngine string
+
+// ModelCommandPreviewRequestModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelCommandPreviewRequestModality string
 
 // ModelCreate defines model for ModelCreate.
 type ModelCreate struct {
@@ -4593,6 +4677,9 @@ type ModelCreate struct {
 	// MemoryFraction The one memory knob (ADR-080 §1), rendered as the engine's own flag — --gpu-memory-utilization on vLLM, --mem-fraction-static on SGLang. Null uses the engine default.
 	MemoryFraction *float64 `json:"memory_fraction,omitempty"`
 
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality *ModelCreateModality `json:"modality,omitempty"`
+
 	// ModelId Hugging Face model reference.
 	ModelId     string `json:"model_id"`
 	Name        string `json:"name"`
@@ -4612,6 +4699,9 @@ type ModelCreate struct {
 // ModelCreateEngine defines model for ModelCreate.Engine.
 type ModelCreateEngine string
 
+// ModelCreateModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelCreateModality string
+
 // ModelCredentials defines model for ModelCredentials.
 type ModelCredentials struct {
 	ApiKey   string `json:"api_key"`
@@ -4624,7 +4714,10 @@ type ModelParseResult struct {
 	EngineFlags    []EngineFlag           `json:"engine_flags"`
 	MaxModelLen    *int                   `json:"max_model_len,omitempty"`
 	MemoryFraction *float64               `json:"memory_fraction,omitempty"`
-	ModelId        string                 `json:"model_id"`
+
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality ModelParseResultModality `json:"modality"`
+	ModelId  string                   `json:"model_id"`
 
 	// Notices What the import dropped, and why — never silent.
 	Notices            []string `json:"notices"`
@@ -4635,6 +4728,9 @@ type ModelParseResult struct {
 
 // ModelParseResultEngine defines model for ModelParseResult.Engine.
 type ModelParseResultEngine string
+
+// ModelParseResultModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelParseResultModality string
 
 // ModelUpdate Engine, server and published port are immutable. Changes take effect at the next start (ADR-080 §5).
 type ModelUpdate struct {
