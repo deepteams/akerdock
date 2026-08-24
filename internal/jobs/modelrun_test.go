@@ -132,8 +132,8 @@ func TestModelProvisionContainerContract(t *testing.T) {
 		if err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1); err != nil {
 			t.Fatal(err)
 		}
-		if config.Cmd[0] != "--model" {
-			t.Fatalf("the vLLM container command must be flags alone, got %q first", config.Cmd[0])
+		if config.Cmd[0] != "org/m" {
+			t.Fatalf("the vLLM container command must open with the positional model, got %q first", config.Cmd[0])
 		}
 		joined := strings.Join(config.Cmd, " ")
 		if !strings.Contains(joined, "--api-key akm_unit_key") || !strings.Contains(joined, "--enable-prefix-caching") {
@@ -437,8 +437,8 @@ func TestModelOmniRuntimeInTheContainer(t *testing.T) {
 		if err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1); err != nil {
 			t.Fatal(err)
 		}
-		if config.Cmd[0] != "--model" {
-			t.Fatalf("the image entrypoints `vllm serve`: the command is flags alone, got %q", config.Cmd[0])
+		if config.Cmd[0] != "org/m" {
+			t.Fatalf("the image entrypoints `vllm serve`: the command opens with the positional model, got %q", config.Cmd[0])
 		}
 		if !strings.Contains(strings.Join(config.Cmd, " "), inference.OmniMarker) {
 			t.Fatalf("cmd = %v — the marker is what activates the omni path", config.Cmd)

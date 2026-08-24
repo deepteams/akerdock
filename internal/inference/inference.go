@@ -203,19 +203,23 @@ func ValidateFlags(flags []Flag) error {
 	return nil
 }
 
-// modelFlag is the engine's spelling of the model reference.
-func modelFlag(engine Engine) string {
+// modelRef is the engine's spelling of the model reference. vLLM takes it
+// as a POSITIONAL argument: `vllm serve --model <id>` still works but warns
+// that the option is going away in a future version, so the renderer emits
+// the form upstream asks for. SGLang has no positional form and keeps its
+// flag. Both spellings stay accepted on import (tier1Flags).
+func modelRef(engine Engine, modelID string) []string {
 	if engine == EngineSGLang {
-		return "--model-path"
+		return []string{"--model-path", modelID}
 	}
-	return "--model"
+	return []string{modelID}
 }
 
 // Args renders the argv AFTER the invocation — flags only, deterministic:
 // tier 1 in a fixed order, then tier 2 in the operator's order. This is THE
 // renderer (ADR-080 §3bis): container, export and diff all read it.
 func Args(cfg Config, apiKey string) []string {
-	args := []string{modelFlag(cfg.Engine), cfg.ModelID}
+	args := modelRef(cfg.Engine, cfg.ModelID)
 	// The modality marker rides with the model it qualifies, before the
 	// platform-managed flags (ADR-083 §2).
 	if marker := RuntimeFor(cfg.Engine, cfg.Modality).Marker; marker != "" {
@@ -264,9 +268,10 @@ func Args(cfg Config, apiKey string) []string {
 
 // ContainerCommand is the container input contract of the RUNTIME — the
 // pair (engine, modality), ADR-080 §4 as extended by ADR-083 §2. The vLLM
-// official image's ENTRYPOINT is `vllm serve`, so the command is the flags
-// ALONE in both modalities (a prefix would reach the server as a bogus
-// argument, and omni is activated by a marker on that same CLI); the SGLang
+// official image's ENTRYPOINT is `vllm serve`, so the command is the
+// ARGUMENTS ALONE in both modalities — the positional model then the flags
+// (a prefix would reach the server as a bogus argument, and omni is
+// activated by a marker on that same CLI); the SGLang
 // image ships no serving entrypoint and the SGLang-Omni image ships another
 // program entirely, so both carry their full invocation. The image's own
 // entrypoint is never overridden: the GB10 community builds do their

@@ -21,17 +21,18 @@ func fullConfigFor(engine Engine, modality Modality) Config {
 }
 
 // The container input contract (ADR-080 §4): vLLM's official image IS the
-// server — flags alone, never a `vllm serve` prefix; SGLang ships no serving
+// server — arguments alone, never a `vllm serve` prefix, with the model in
+// the positional form upstream now asks for; SGLang ships no serving
 // entrypoint — the full invocation. Each engine renders its own spelling of
 // the shared knobs.
 func TestContainerCommandContract(t *testing.T) {
 	vllm := ContainerCommand(fullConfig(EngineVLLM), "sk-key")
-	if vllm[0] != "--model" {
-		t.Fatalf("the vLLM container command must be flags alone, got %q first", vllm[0])
+	if vllm[0] != "meta-llama/Llama-3.1-8B-Instruct" {
+		t.Fatalf("the vLLM container command must open with the positional model, got %q first", vllm[0])
 	}
 	joined := strings.Join(vllm, " ")
 	for _, want := range []string{
-		"--model meta-llama/Llama-3.1-8B-Instruct", "--host 0.0.0.0", "--port 8000",
+		"--host 0.0.0.0", "--port 8000",
 		"--api-key sk-key", "--served-model-name llama", "--quantization awq",
 		"--max-model-len 8192", "--tensor-parallel-size 2", "--gpu-memory-utilization 0.85",
 		"--enable-prefix-caching --kv-cache-dtype fp8",
@@ -42,6 +43,13 @@ func TestContainerCommandContract(t *testing.T) {
 	}
 	if strings.Contains(joined, "vllm serve") || strings.Contains(joined, "--context-length") {
 		t.Fatalf("vLLM command carries another engine's spelling:\n%s", joined)
+	}
+	if strings.Contains(joined, "--model ") {
+		t.Fatalf("vLLM's --model option is deprecated upstream, the model is positional:\n%s", joined)
+	}
+	// The copy-ready form is the same command with the invocation back on.
+	if human := HumanCommand(fullConfig(EngineVLLM), ""); !strings.HasPrefix(human, "vllm serve meta-llama/Llama-3.1-8B-Instruct ") {
+		t.Fatalf("human command = %s", human)
 	}
 
 	sgl := ContainerCommand(fullConfig(EngineSGLang), "sk-key")
@@ -195,19 +203,19 @@ func TestValidateFlags(t *testing.T) {
 func TestOmniRuntimeContract(t *testing.T) {
 	t.Run("vLLM omni stays flags-alone and carries the marker", func(t *testing.T) {
 		cmd := ContainerCommand(fullConfigFor(EngineVLLM, ModalityOmni), "sk-key")
-		if cmd[0] != "--model" {
-			t.Fatalf("the vLLM image entrypoints `vllm serve`: the command is flags alone, got %q", cmd[0])
+		if cmd[0] != "meta-llama/Llama-3.1-8B-Instruct" {
+			t.Fatalf("the vLLM image entrypoints `vllm serve`: the command opens with the positional model, got %q", cmd[0])
 		}
 		joined := strings.Join(cmd, " ")
 		for _, want := range []string{
-			"--model meta-llama/Llama-3.1-8B-Instruct " + OmniMarker,
+			"meta-llama/Llama-3.1-8B-Instruct " + OmniMarker,
 			"--max-model-len 8192", "--tensor-parallel-size 2", "--gpu-memory-utilization 0.85",
 		} {
 			if !strings.Contains(joined, want) {
 				t.Fatalf("vLLM omni command misses %q:\n%s", want, joined)
 			}
 		}
-		if human := HumanCommand(fullConfigFor(EngineVLLM, ModalityOmni), ""); !strings.HasPrefix(human, "vllm serve --model ") ||
+		if human := HumanCommand(fullConfigFor(EngineVLLM, ModalityOmni), ""); !strings.HasPrefix(human, "vllm serve meta-llama/") ||
 			!strings.Contains(human, " "+OmniMarker+" ") {
 			t.Fatalf("human command = %s", human)
 		}
