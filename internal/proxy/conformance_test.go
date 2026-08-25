@@ -41,7 +41,11 @@ type fixture struct {
 		ACMEEmail   string `json:"acme_email"`
 		DNSProvider string `json:"dns_provider"`
 		TCPPorts    []int  `json:"tcp_ports"`
-		Revision    int64  `json:"revision"`
+		// EdgeTrustedIPs is the ADR-077 origin-side trust: the designated
+		// edge's addresses, on both entrypoints (PROXY protocol on 443,
+		// X-Forwarded-* on 80).
+		EdgeTrustedIPs []string `json:"edge_trusted_ips"`
+		Revision       int64    `json:"revision"`
 	} `json:"static"`
 	Groups []struct {
 		AppUUID        string `json:"app_uuid"`
@@ -69,6 +73,17 @@ type fixture struct {
 		DNSProvider    string `json:"dns_provider"`
 		Revision       int64  `json:"revision"`
 	} `json:"ingress"`
+	// Edge relays (ADR-077): the file an EDGE server carries for one origin
+	// server it answers for — SNI passthrough on 443 with PROXY protocol
+	// toward the origin, Host relay on 80 so ACME HTTP-01 traverses.
+	Edge []struct {
+		OriginUUID string   `json:"origin_uuid"`
+		OriginHost string   `json:"origin_host"`
+		HTTPPort   int      `json:"http_port"`
+		HTTPSPort  int      `json:"https_port"`
+		FQDNs      []string `json:"fqdns"`
+		Revision   int64    `json:"revision"`
+	} `json:"edge"`
 }
 
 func TestTraefikConformance(t *testing.T) {
@@ -85,7 +100,7 @@ func TestTraefikConformance(t *testing.T) {
 			}
 
 			if fx.Static != nil {
-				got := proxy.GenerateStatic(fx.Static.HTTPPort, fx.Static.HTTPSPort, fx.Static.ACMEEmail, fx.Static.DNSProvider, fx.Static.TCPPorts, fx.Static.Revision)
+				got := proxy.GenerateStatic(fx.Static.HTTPPort, fx.Static.HTTPSPort, fx.Static.ACMEEmail, fx.Static.DNSProvider, fx.Static.TCPPorts, fx.Static.EdgeTrustedIPs, fx.Static.Revision)
 				compare(t, filepath.Join(dir, "expected", "traefik", "traefik.yaml"), got)
 			}
 
@@ -141,6 +156,17 @@ func TestTraefikConformance(t *testing.T) {
 					t.Fatal("the ingress generator is not deterministic")
 				}
 				compare(t, filepath.Join(dir, "expected", "traefik", "dynamic", ing.UUID+".yaml"), got)
+			}
+
+			// Edge relays (ADR-077): the reviewable proof that the edge holds
+			// no certificate and no key — the 443 side is a TCP router with
+			// passthrough, never a TLS-terminating HTTP router.
+			for _, e := range fx.Edge {
+				got := proxy.GenerateEdge(e.OriginUUID, e.OriginHost, e.HTTPPort, e.HTTPSPort, e.FQDNs, e.Revision)
+				if again := proxy.GenerateEdge(e.OriginUUID, e.OriginHost, e.HTTPPort, e.HTTPSPort, e.FQDNs, e.Revision); again != got {
+					t.Fatal("the edge generator is not deterministic")
+				}
+				compare(t, filepath.Join(dir, "expected", "traefik", "dynamic", proxy.EdgeScope(e.OriginUUID)+".yaml"), got)
 			}
 
 			// Caddy (P2): an absent expectation is reported, never silently

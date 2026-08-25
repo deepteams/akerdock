@@ -66,7 +66,7 @@ func (a *API) CliAuthStart(w http.ResponseWriter, r *http.Request) {
 		Name      string `json:"name"`
 		Scopes    string `json:"scopes"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Challenge == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil || body.Challenge == "" {
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "challenge is required")
 		return
 	}
@@ -161,7 +161,7 @@ func (a *API) CliAuthApprove(w http.ResponseWriter, r *http.Request) {
 		TeamUUID    string   `json:"team_uuid"`
 		Permissions []string `json:"permissions"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RequestID == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil || body.RequestID == "" {
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "request_id is required")
 		return
 	}
@@ -215,7 +215,7 @@ func (a *API) CliAuthToken(w http.ResponseWriter, r *http.Request) {
 		RequestID string `json:"request_id"`
 		Verifier  string `json:"verifier"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.RequestID == "" || body.Verifier == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil || body.RequestID == "" || body.Verifier == "" {
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "request_id and verifier are required")
 		return
 	}

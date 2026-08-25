@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -16,6 +17,11 @@ import (
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/store"
 )
+
+// forgeHTTPClient overrides the forge HTTP client in tests, whose fake forges
+// live on loopback. Nil — always, in production — keeps gitforge's default,
+// the SSRF-guarded safedial client (threat model AB-10).
+var forgeHTTPClient *http.Client
 
 // forgeNotifier builds the feedback client for the application's git source,
 // or nil when the source has no API token (feedback is then skipped — a
@@ -49,9 +55,9 @@ func forgeNotifier(ctx context.Context, q *store.Queries, keyring *envelope.Keyr
 	}
 	switch provider {
 	case store.GitProviderGitlab:
-		return &gitforge.GitLab{BaseURL: baseURL, Token: string(token)}, nil
+		return &gitforge.GitLab{BaseURL: baseURL, Token: string(token), HTTPClient: forgeHTTPClient}, nil
 	case store.GitProviderGitea:
-		return &gitforge.Gitea{BaseURL: baseURL, Token: string(token)}, nil
+		return &gitforge.Gitea{BaseURL: baseURL, Token: string(token), HTTPClient: forgeHTTPClient}, nil
 	default:
 		// GitHub manual-webhook feedback by PAT is a proposed default the
 		// matrix marks optional (protocols §3) — not implemented yet.

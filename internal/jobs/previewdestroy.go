@@ -89,7 +89,10 @@ func (h *PreviewDestroy) Execute(ctx context.Context, job store.Job, rec *queue.
 	previewUUID := pguuid.String(preview.Uuid)
 	// Routing detaches before the workload disappears (§20.6 order).
 	if server.ProxyType == store.ProxyTypeTraefik {
-		applier := &ProxyApplier{Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network}
+		applier := &ProxyApplier{
+			Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network,
+			Edge: &EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+		}
 		if err := applier.Apply(ctx, previewUUID, "", ""); err != nil {
 			return nil, cleanupFailed(fmt.Errorf("routing removal: %w", err))
 		}

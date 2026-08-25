@@ -12,6 +12,7 @@ import (
 	"github.com/deepteams/akerdock/internal/dockerruntime"
 	"github.com/deepteams/akerdock/internal/envelope"
 	"github.com/deepteams/akerdock/internal/hostops"
+	"github.com/deepteams/akerdock/internal/inference"
 	"github.com/deepteams/akerdock/internal/pguuid"
 	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/queue"
@@ -53,6 +54,9 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 		if resourceErr != nil {
 			//nolint:nilerr // a deleted resource routes nothing: an expected no-op.
 			return map[string]any{"status": "resource deleted, nothing to do"}, nil
+		}
+		if resource.ResourceType == store.ResourceTypeModel {
+			return h.executeModel(ctx, payload, rec)
 		}
 		if resource.ResourceType != store.ResourceTypeService {
 			return map[string]any{"status": "resource is not routable"}, nil
@@ -104,13 +108,93 @@ func (h *ApplyRouting) Execute(ctx context.Context, job store.Job, rec *queue.St
 		rec.Fail(ctx, err.Error())
 		return nil, err
 	}
-	applier := &ProxyApplier{Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network}
+	applier := &ProxyApplier{
+		Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network,
+		Edge: &EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+	}
 	if err := applier.Apply(ctx, appUUID, content, ""); err != nil {
 		rec.Fail(ctx, err.Error())
 		return nil, err
 	}
 	rec.Succeed(ctx, "routing converged")
 	return map[string]any{"app_uuid": appUUID, "routed": content != ""}, nil
+}
+
+// executeModel converges a MODEL's routing file (ADR-080 §1, carried across
+// an edge relay by ADR-077): the same applier and edge sync as applications,
+// a route group targeting the model's own container on the fixed engine port.
+func (h *ApplyRouting) executeModel(ctx context.Context, payload ApplyRoutingPayload, rec *queue.StepRecorder) (any, error) {
+	row, err := h.Store.GetModelByID(ctx, payload.ResourceID)
+	if err != nil {
+		return nil, err
+	}
+	dest, err := h.Store.GetDestinationByID(ctx, row.Resource.DestinationID)
+	if err != nil {
+		return nil, err
+	}
+	server, err := h.Store.GetServerByID(ctx, dest.ServerID)
+	if err != nil {
+		return nil, err
+	}
+	if server.ProxyType != store.ProxyTypeTraefik {
+		return map[string]any{"status": "server has no managed proxy"}, nil
+	}
+
+	rec.Start(ctx, "apply_routing")
+	rt, err := h.Docker.Runtime(ctx, server.ID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected")
+		return nil, err
+	}
+	ops, err := h.HostOps.HostOps(ctx, server.ID)
+	if err != nil {
+		rec.Fail(ctx, "the server's agent is not connected")
+		return nil, err
+	}
+	modelUUID := pguuid.String(row.Resource.Uuid)
+	content, err := RenderModelRoutingFile(ctx, h.Store, row, server, payload.Revision)
+	if err != nil {
+		rec.Fail(ctx, err.Error())
+		return nil, err
+	}
+	applier := &ProxyApplier{
+		Store: h.Store, Docker: rt, Host: ops, Server: server, Network: dest.Network,
+		Edge: &EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+	}
+	if err := applier.Apply(ctx, modelUUID, content, ""); err != nil {
+		rec.Fail(ctx, err.Error())
+		return nil, err
+	}
+	rec.Succeed(ctx, "routing converged")
+	return map[string]any{"model_uuid": modelUUID, "routed": content != ""}, nil
+}
+
+// RenderModelRoutingFile builds the model's Traefik dynamic file: every
+// domain routes to the model container (named after the resource UUID) on the
+// fixed engine port. noindex is unconditional — an API answers nothing an
+// index should hold (ADR-080 §2). "" means no domain: file removal.
+func RenderModelRoutingFile(ctx context.Context, q *store.Queries, row store.GetModelByIDRow, server store.Server, revision int64) (string, error) {
+	resID := row.Resource.ID
+	domains, err := q.ListDomainsForModel(ctx, &resID)
+	if err != nil || len(domains) == 0 {
+		return "", err
+	}
+	modelUUID := pguuid.String(row.Resource.Uuid)
+	rg := proxy.RouteGroup{
+		AppUUID: modelUUID, Endpoint: modelUUID,
+		ForceHTTPS: true, Noindex: true,
+	}
+	// Same DNS-01 rule as applications: a route under the server's wildcard
+	// cannot be validated over HTTP-01.
+	if server.WildcardDomain != nil && *server.WildcardDomain != "" && server.DnsCredentialID != nil {
+		if cred, err := q.GetDNSCredentialByID(ctx, *server.DnsCredentialID); err == nil {
+			rg.WildcardDomain, rg.DNSProvider = *server.WildcardDomain, cred.Provider
+		}
+	}
+	for _, d := range domains {
+		rg.Routes = append(rg.Routes, proxy.Route{FQDN: d.Fqdn, Path: d.Path, TargetPort: inference.ContainerPort})
+	}
+	return proxy.GenerateDynamic(rg, revision), nil
 }
 
 // RenderRoutingFile builds the Traefik dynamic file content for the

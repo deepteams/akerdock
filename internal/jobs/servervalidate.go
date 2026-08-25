@@ -84,8 +84,7 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Fail(ctx, "the private key could not be decrypted — check the master key file (runbook key-rotation.md)")
 		return nil, err
 	}
-	timeout := max(time.Duration(server.SshTimeoutSeconds), 1) * time.Second
-	client, err := sshexec.Dial(ctx, server.Host, int(server.Port), server.SshUser, string(pem), timeout, serverdial.HostKey(server))
+	client, err := serverdial.DialWithKey(ctx, server, string(pem))
 	if errors.Is(err, sshexec.ErrHostKeyChanged) {
 		// Not a connectivity problem: the machine answering is not the one we
 		// onboarded. Either it was rebuilt — in which case an operator clears
@@ -110,6 +109,31 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 	}
 	rec.Succeed(ctx, "connected; host key "+client.HostKeyFingerprint)
 
+	// Step 1.5 — the non-root contract (§3.1, ADR-076): a use_sudo server runs
+	// every later command under `sudo -n`, so prove the escalation works
+	// before any step fails for the wrong-looking reason. Its own step because
+	// §20.1 demands a DISTINCT error for interactive sudo — and because the
+	// remediation (a sudoers line) has nothing in common with the SSH one.
+	if server.UseSudo {
+		rec.Start(ctx, "check_sudo")
+		res, err := client.Run(ctx, "true")
+		if err == nil && res.ExitCode != 0 {
+			// The classified refusals (password prompt, sudo absent) arrive as
+			// errors already; anything else non-zero is still a broken
+			// escalation — a restricted sudoers, typically.
+			err = fmt.Errorf("sudo escalation failed (exit %d, %s) — the sudoers entry must allow "+
+				"the user to run any command without a password (NOPASSWD: ALL, §3.1)", res.ExitCode, stderrOf(res))
+		}
+		if err != nil {
+			rec.Fail(ctx, firstLine(err.Error()))
+			if statusErr := h.Store.SetServerStatus(ctx, store.SetServerStatusParams{ID: server.ID, Status: store.ServerStatusPending}); statusErr != nil {
+				return nil, statusErr
+			}
+			return nil, err
+		}
+		rec.Succeed(ctx, "passwordless sudo confirmed for "+server.SshUser)
+	}
+
 	// Step 2 — system facts: OS and architecture (amd64/arm64 only, §22.4).
 	rec.Start(ctx, "detect_system")
 	facts, err := detectSystem(ctx, client)
@@ -126,6 +150,34 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		return nil, h.recordFacts(ctx, server.ID, facts, store.ServerStatusPending, err)
 	}
 	rec.Succeed(ctx, "Docker Engine "+facts.DockerVersion)
+
+	// Step 3.5 — the accelerator (ADR-079). An observed fact like the OS and
+	// the architecture, never a declared one: NULL means "none observed", and
+	// a GPU whose driver went away goes back to NULL here. A GPU the daemon
+	// cannot hand to containers (no NVIDIA runtime) is recorded GPU-less WITH
+	// the fix named — a device the platform cannot schedule onto is not a
+	// device, whatever lspci thinks.
+	gpu, err := detectGPU(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.Store.RecordServerGPU(ctx, store.RecordServerGPUParams{
+		ID: server.ID, GpuName: gpu.name, GpuMemoryMb: gpu.memoryMB,
+	}); err != nil {
+		return nil, err
+	}
+	switch {
+	case gpu.name != nil:
+		rec.Start(ctx, "detect_gpu")
+		rec.Succeed(ctx, fmt.Sprintf("%s (%d MiB)", *gpu.name, orZero(gpu.memoryMB)))
+	case gpu.runtimeMissing:
+		rec.Skip(ctx, "detect_gpu", "a GPU answered nvidia-smi but Docker cannot hand it to containers — "+
+			"no nvidia runtime entry, no toolkit hook, no CDI spec was found: install nvidia-container-toolkit "+
+			"(or `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`) and "+
+			"re-validate; until then the server is GPU-less to the platform (ADR-079)")
+	default:
+		rec.Skip(ctx, "detect_gpu", "no GPU observed")
+	}
 
 	if err := h.recordFacts(ctx, server.ID, facts, store.ServerStatusReady, nil); err != nil {
 		return nil, err
@@ -165,7 +217,9 @@ func (h *ServerValidate) Execute(ctx context.Context, job store.Job, rec *queue.
 		rec.Skip(ctx, "bootstrap_proxy", reason)
 	} else {
 		rec.Start(ctx, "bootstrap_proxy")
-		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops, server, false, h.ControlPlanePort); err != nil {
+		if err := bootstrapProxy(ctx, h.Store, h.Keyring, client, rt, ops,
+			&EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+			server, false, h.ControlPlanePort); err != nil {
 			rec.Fail(ctx, "proxy bootstrap failed — retry the validation once the cause is fixed: "+firstLine(err.Error()))
 			return nil, err
 		}
@@ -233,7 +287,33 @@ func (h *ServerValidate) provisionAgent(ctx context.Context, client *sshexec.Cli
 		return nil, nil, err
 	}
 	if res.ExitCode != 0 {
-		return nil, nil, fmt.Errorf("agent deploy failed (exit %d): %s", res.ExitCode, stderrOf(res))
+		// The known failure mode of a source-only install (ADR-078): the
+		// image exists in no registry, so obtaining it either built from the
+		// public repository at this instance's commit (the prelude) or failed
+		// a hopeless pull. Name the remediation for the exact situation —
+		// the operator is looking at precisely this message.
+		hint := ""
+		combined := res.Stdout + "\n" + res.Stderr
+		for _, marker := range []string{
+			"pull access denied", "repository does not exist", "manifest unknown", "Unable to find image",
+			"could not find remote ref", "repository not found", "failed to fetch",
+		} {
+			if !strings.Contains(combined, marker) {
+				continue
+			}
+			if agentSource.Commit != "" {
+				hint = fmt.Sprintf(" — the server builds %q from %s#%s (ADR-078): is that commit pushed? "+
+					"push it and re-validate, or ship unpushed work with ./install.sh seed <user>@%s",
+					h.AgentImage, agentSource.Repo, agentSource.Commit, server.Host)
+			} else {
+				hint = fmt.Sprintf(" — the image %q is not pullable from this server, and this instance carries "+
+					"no source commit to rebuild it from (a dirty tree at install time, ADR-078): commit, push and "+
+					"re-run ./install.sh, or ship the working tree with ./install.sh seed <user>@%s",
+					h.AgentImage, server.Host)
+			}
+			break
+		}
+		return nil, nil, fmt.Errorf("agent deploy failed (exit %d): %s%s", res.ExitCode, stderrOf(res), hint)
 	}
 	// The agent dials OUTBOUND: wait for its channel, not for the container.
 	deadline := time.Now().Add(agentReadyTimeout)
@@ -396,7 +476,7 @@ func proxyBootstrapDecision(server store.Server) (run bool, skipReason string) {
 	}
 }
 
-func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, rt dockerruntime.Runtime, ops hostops.Ops, server store.Server, recreate bool, cpPort int) error {
+func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, rt dockerruntime.Runtime, ops hostops.Ops, edge *EdgeSyncer, server store.Server, recreate bool, cpPort int) error {
 	h := &ServerValidate{Store: q, Keyring: kr}
 	dest, err := h.Store.GetDefaultDestination(ctx, server.ID)
 	if err != nil {
@@ -450,7 +530,11 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 			ports = append(ports, int(*p))
 		}
 	}
-	static := proxy.GenerateStatic(int(server.ProxyHttpPort), int(server.ProxyHttpsPort), email, dnsProvider, ports, server.ID)
+	trustedIPs, err := edgeTrustedIPs(ctx, h.Store, server)
+	if err != nil {
+		return err
+	}
+	static := proxy.GenerateStatic(int(server.ProxyHttpPort), int(server.ProxyHttpsPort), email, dnsProvider, ports, trustedIPs, server.ID)
 
 	// Legacy layout migration (spec amendment: /data/akerdock → FHS
 	// /var/lib/akerdock): the old directory carries acme.json — the Let's
@@ -498,7 +582,8 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		// non-root is experimental) — spell out both exits instead of leaving
 		// a locale-dependent mkdir error alone.
 		return fmt.Errorf("proxy layout: %v (exit %d, %s) — the SSH user must be able to write "+
-			"/var/lib/akerdock: onboard the server as root, or pre-create it for the user "+
+			"/var/lib/akerdock: onboard the server as root, enable use_sudo on the server "+
+			"(passwordless sudo required, ADR-076), or pre-create it for the user "+
 			"(sudo mkdir -p /var/lib/akerdock && sudo chown -R <ssh-user>: /var/lib/akerdock)",
 			err, exitCode(res), stderrOf(res))
 	}
@@ -601,7 +686,7 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 		// disk; the control-plane route reconverges on the next validation.
 		return nil
 	}
-	applier := &ProxyApplier{Store: q, Docker: rt, Host: ops, Server: server, Network: dest.Network}
+	applier := &ProxyApplier{Store: q, Docker: rt, Host: ops, Server: server, Network: dest.Network, Edge: edge}
 	if err := applier.Apply(ctx, proxy.ControlPlaneScope, content, ""); err != nil {
 		return fmt.Errorf("instance FQDN routing (%s): %w", proxy.ControlPlaneScope, err)
 	}
@@ -627,7 +712,7 @@ const (
 // start what it finds. Its authority is possession of the host and of the
 // instance's own configuration, never a credential of its own.
 func RepairProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring, client *sshexec.Client, server store.Server, cpPort int) error {
-	return bootstrapProxy(ctx, q, kr, client, nil, nil, server, false, cpPort)
+	return bootstrapProxy(ctx, q, kr, client, nil, nil, nil, server, false, cpPort)
 }
 
 // proxyStaticDrifted compares the static configuration deployed on the server
@@ -730,6 +815,62 @@ func (h *ServerValidate) markUnreachable(ctx context.Context, serverID int64, ca
 		return err
 	}
 	return cause
+}
+
+// gpuFacts is what the ADR-079 probe observed: a nil name is "none", and
+// runtimeMissing distinguishes "no card" from "a card the daemon cannot use".
+type gpuFacts struct {
+	name           *string
+	memoryMB       *int32
+	runtimeMissing bool
+}
+
+// detectGPU probes the accelerator and the daemon's ability to hand it to
+// containers. Probe failures are SSH failures — a host without nvidia-smi
+// answers cleanly empty, never with an error.
+func detectGPU(ctx context.Context, client *sshexec.Client) (gpuFacts, error) {
+	res, err := client.Run(ctx,
+		"command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null || true")
+	if err != nil {
+		return gpuFacts{}, err
+	}
+	line := firstLine(strings.TrimSpace(res.Stdout))
+	if line == "" {
+		return gpuFacts{}, nil
+	}
+	namePart, memPart, _ := strings.Cut(line, ",")
+	name := strings.TrimSpace(namePart)
+	if name == "" {
+		return gpuFacts{}, nil
+	}
+	var memoryMB *int32
+	if mem, err := strconv.Atoi(strings.TrimSpace(memPart)); err == nil && mem > 0 {
+		memoryMB = ptr(int32(mem))
+	}
+	// The daemon side: a DeviceRequest is satisfied through any of THREE
+	// mechanisms, and requiring the daemon.json runtime entry alone rejected
+	// perfectly working setups — `docker run --gpus` needs only the
+	// toolkit's hook, and Docker 28+ satisfies it through CDI specs with no
+	// runtime entry at all. Accept whichever signal is present; refuse only
+	// when none is, because then the create really would fail.
+	rt, err := client.Run(ctx,
+		"docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia && echo runtime; "+
+			"command -v nvidia-container-runtime-hook >/dev/null 2>&1 && echo hook; "+
+			"ls /etc/cdi/*nvidia* /var/run/cdi/*nvidia* >/dev/null 2>&1 && echo cdi; true")
+	if err != nil {
+		return gpuFacts{}, err
+	}
+	if strings.TrimSpace(rt.Stdout) == "" {
+		return gpuFacts{runtimeMissing: true}, nil
+	}
+	return gpuFacts{name: &name, memoryMB: memoryMB}, nil
+}
+
+func orZero(v *int32) int32 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 func (h *ServerValidate) recordFacts(ctx context.Context, serverID int64, facts *systemFacts, status store.ServerStatus, cause error) error {

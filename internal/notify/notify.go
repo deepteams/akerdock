@@ -398,19 +398,38 @@ func ValidateConfig(kind string, cfg Config) error {
 // Sender delivers events to a channel.
 type Sender struct {
 	HTTP *http.Client
+	// SMTPDial opens the SMTP connection. Nil falls back to the guarded
+	// dialer, so a zero-value Sender stays fail-closed.
+	SMTPDial *net.Dialer
 }
 
 // New builds a sender. The timeout is short: a channel that hangs must not
 // hold the dispatcher, and a missed alert is retried on the next pass.
 //
-// The HTTP client is SSRF-guarded (safedial): a notification channel's webhook
-// URL is set by team members (notifications:manage), so it is attacker-
-// influenceable — the classic SSRF vector is a "test channel" call pointed at
-// 169.254.169.254. Blocking non-public destinations here closes it. (The SMTP
-// dial below is NOT guarded: the relay is instance-root configuration and may
-// legitimately be an internal host.)
+// Both clients are SSRF-guarded (safedial): a notification channel's webhook
+// URL — and an smtp channel's host — is set by team members
+// (notifications:manage), so it is attacker-influenceable — the classic SSRF
+// vector is a "test channel" call pointed at 169.254.169.254. Blocking
+// non-public destinations here closes it, port-scan-by-SMTP-banner included.
+// The instance relay, which legitimately lives on an internal host, goes
+// through NewSystem instead.
 func New() *Sender {
-	return &Sender{HTTP: safedial.HTTPClient(10 * time.Second)}
+	return &Sender{
+		HTTP:     safedial.HTTPClient(10 * time.Second),
+		SMTPDial: safedial.Dialer(10 * time.Second),
+	}
+}
+
+// NewSystem builds the sender for instance email (invitations, the /system
+// /email test): its SMTP relay is instance-root configuration and may
+// legitimately be an internal host, so the SMTP dial is unguarded — the
+// operator configuring it already runs the control plane. The HTTP client
+// stays guarded: the only HTTP target on this path is the Resend API.
+func NewSystem() *Sender {
+	return &Sender{
+		HTTP:     safedial.HTTPClient(10 * time.Second),
+		SMTPDial: &net.Dialer{Timeout: 10 * time.Second},
+	}
 }
 
 // Send posts the event to the channel. The body shape is the provider's; the
@@ -527,7 +546,10 @@ func (s *Sender) sendMail(ctx context.Context, cfg SMTPConfig, e Event) error {
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(port))
 	msg := buildMessage(cfg.From, cfg.To, e)
 
-	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	dialer := s.SMTPDial
+	if dialer == nil {
+		dialer = safedial.Dialer(10 * time.Second)
+	}
 	var conn net.Conn
 	var err error
 	if cfg.Encryption == "tls" {

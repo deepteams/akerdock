@@ -2,6 +2,7 @@ import { SlicePipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
 import { ConfirmService } from '../../ui/confirm/confirm.service';
@@ -29,6 +30,7 @@ const KINDS: ChannelKind[] = [
   selector: 'app-notifications',
   standalone: true,
   imports: [
+    ModalComponent,
     FormsModule,
     RouterLink,
     SlicePipe,
@@ -43,9 +45,9 @@ const KINDS: ChannelKind[] = [
       <header class="akd-bar">
         <h1>Notifications</h1>
         <span class="grow"></span>
-        <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(!creating())">
+        <button class="akd-btn akd-btn--primary" type="button" (click)="creating.set(true)">
           <akd-icon name="plus" [size]="15" />
-          {{ creating() ? 'Cancel' : 'New channel' }}
+          New channel
         </button>
       </header>
 
@@ -86,8 +88,8 @@ const KINDS: ChannelKind[] = [
         </div>
       }
 
-      @if (creating()) {
-        <form class="akd-card create" (ngSubmit)="create()">
+      <akd-modal [open]="creating()" title="New channel" (closed)="creating.set(false)">
+        <form id="nc-create-form" class="modal-stack" (ngSubmit)="create()">
           <div class="row">
             <div class="akd-field">
               <label class="akd-field__label" for="nc-kind">Type</label>
@@ -292,13 +294,26 @@ const KINDS: ChannelKind[] = [
             Secrets (URL, tokens, passwords) are write-only: encrypted at rest and never returned by
             the API.
           </p>
-          <div>
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy()">
-              {{ busy() ? 'Adding…' : 'Add channel' }}
-            </button>
-          </div>
         </form>
-      }
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="creating.set(false)"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="nc-create-form"
+            [disabled]="busy()"
+          >
+            {{ busy() ? 'Adding…' : 'Add channel' }}
+          </button>
+        </div>
+      </akd-modal>
 
       <akd-card title="Channels" [padded]="false">
         @if (loading()) {
@@ -372,6 +387,10 @@ const KINDS: ChannelKind[] = [
   `,
   styles: [
     `
+      .modal-stack {
+        display: grid;
+        gap: var(--space-4);
+      }
       .grow {
         flex: 1;
       }
@@ -380,11 +399,6 @@ const KINDS: ChannelKind[] = [
       }
       .toast__body {
         flex: 1;
-      }
-      .create {
-        display: grid;
-        gap: var(--space-3);
-        margin-bottom: var(--space-5);
       }
       .row {
         display: flex;

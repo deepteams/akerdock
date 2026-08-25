@@ -6,6 +6,7 @@ import { CardComponent } from '../../ui/card/card.component';
 import { StatComponent } from '../../ui/stat/stat.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
@@ -17,6 +18,7 @@ type PrivateKey = components['schemas']['PrivateKey'];
   selector: 'app-servers',
   standalone: true,
   imports: [
+    ModalComponent,
     FormsModule,
     RouterLink,
     StatusBadgeComponent,
@@ -32,8 +34,8 @@ type PrivateKey = components['schemas']['PrivateKey'];
         <h1>Servers</h1>
         <span class="grow"></span>
         <button class="akd-btn akd-btn--primary" type="button" (click)="toggleCreate()">
-          <akd-icon [name]="creating() ? 'x' : 'plus'" [size]="15" />
-          {{ creating() ? 'Cancel' : 'Add server' }}
+          <akd-icon name="plus" [size]="15" />
+          Add server
         </button>
       </header>
 
@@ -41,8 +43,8 @@ type PrivateKey = components['schemas']['PrivateKey'];
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      @if (creating()) {
-        <form class="akd-card create" (ngSubmit)="create()">
+      <akd-modal [open]="creating()" title="Add server" (closed)="creating.set(false)">
+        <form id="sv-create-form" class="modal-stack" (ngSubmit)="create()">
           <div class="akd-field">
             <label class="akd-field__label" for="sv-name">Name</label>
             <input
@@ -91,6 +93,21 @@ type PrivateKey = components['schemas']['PrivateKey'];
               />
             </div>
           </div>
+          @if (user.trim() && user.trim() !== 'root') {
+            <label class="akd-check">
+              <input type="checkbox" name="useSudo" [(ngModel)]="useSudo" [disabled]="busy()" />
+              Escalate remote commands with sudo
+            </label>
+            <span class="akd-field__hint">
+              AkerDock signs in with an SSH key and has no password to type when sudo prompts, so
+              the user needs a passwordless sudoers entry — on the server, run:
+              <code
+                >echo '{{ user.trim() }} ALL=(ALL) NOPASSWD: ALL' | sudo tee
+                /etc/sudoers.d/90-akerdock</code
+              >. Without sudo, the user must own <code>/var/lib/akerdock</code> and belong to the
+              <code>docker</code> group.
+            </span>
+          }
           <div class="akd-field">
             <label class="akd-field__label" for="sv-key">Private key</label>
             <div class="akd-select">
@@ -117,13 +134,26 @@ type PrivateKey = components['schemas']['PrivateKey'];
             />
             Dedicated build server (cannot host applications)
           </label>
-          <div>
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy() || !valid()">
-              {{ busy() ? 'Creating…' : 'Create server' }}
-            </button>
-          </div>
         </form>
-      }
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="creating.set(false)"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="sv-create-form"
+            [disabled]="busy() || !valid()"
+          >
+            {{ busy() ? 'Creating…' : 'Create server' }}
+          </button>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -195,6 +225,10 @@ type PrivateKey = components['schemas']['PrivateKey'];
   `,
   styles: [
     `
+      .modal-stack {
+        display: grid;
+        gap: var(--space-4);
+      }
       .grow {
         flex: 1;
       }
@@ -206,13 +240,6 @@ type PrivateKey = components['schemas']['PrivateKey'];
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: var(--space-4);
-      }
-      .create {
-        display: grid;
-        gap: var(--space-4);
-        padding: var(--space-5);
-        margin-bottom: var(--space-5);
-        max-width: 32rem;
       }
       .row {
         display: flex;
@@ -251,6 +278,7 @@ export class ServersComponent {
   protected host = '';
   protected port = 22;
   protected user = 'root';
+  protected useSudo = false;
   protected privateKeyUuid = '';
   protected isBuildServer = false;
 
@@ -305,6 +333,7 @@ export class ServersComponent {
         host: this.host.trim(),
         port: this.port,
         user: this.user.trim(),
+        use_sudo: this.user.trim() !== 'root' && this.useSudo,
         private_key_uuid: this.privateKeyUuid,
         ssh_timeout_seconds: 30,
         is_build_server: this.isBuildServer,

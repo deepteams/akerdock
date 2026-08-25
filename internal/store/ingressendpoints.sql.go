@@ -43,7 +43,7 @@ func (q *Queries) CreateIngressAccessToken(ctx context.Context, arg CreateIngres
 const createIngressDomain = `-- name: CreateIngressDomain :one
 INSERT INTO domains (uuid, ingress_endpoint_id, fqdn, path, is_generated)
 VALUES ($1, $2, $3, '/', false)
-RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id
+RETURNING id, uuid, application_id, service_component_id, fqdn, path, target_port, is_generated, created_by, created_at, updated_at, ingress_endpoint_id, model_id
 `
 
 type CreateIngressDomainParams struct {
@@ -68,6 +68,7 @@ func (q *Queries) CreateIngressDomain(ctx context.Context, arg CreateIngressDoma
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.IngressEndpointID,
+		&i.ModelID,
 	)
 	return i, err
 }

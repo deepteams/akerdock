@@ -170,7 +170,7 @@ flowchart TB
 | **T** | Injection of ANSI/HTML sequences into displayed logs (log poisoning) | ANSI/HTML neutralization, neutralized HTML rendering (§5.7, §23.3) | Log display fuzzing tests |
 | **R** | Log consumption without a trace | Audit of sensitive accesses (§23.4) | Reads of non-sensitive logs are not audited (accepted choice) |
 | **I** | A secret printed by the build leaks into the log stream | INV-003 (no secret in logs), Docker build secrets BuildKit (§5.4) | On-the-fly filtering/redaction of known secret patterns in the stream **(proposed default)** |
-| **D** | Thousands of open SSE streams saturating connections | Bounded buffer, backpressure, cursor, dropped-lines signal (§22.2); target 500 streams (§22.2) | Explicit cap of concurrent streams per team/user **missing** |
+| **D** | Thousands of open SSE streams saturating connections | Bounded buffer, backpressure, cursor, dropped-lines signal (§22.2); target 500 streams (§22.2); **cap of concurrent streams per team** (50 per API instance, `409` beyond) | — (compliant) |
 | **E** | Reuse of a realtime token for another stream | Short-lived token, revocation on close (§24.4) | Strict token→(resource, stream type) binding **to be implemented** |
 
 ### 3.3 WebSocket terminal (PTY → SSH)

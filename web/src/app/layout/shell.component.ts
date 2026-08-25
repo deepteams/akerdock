@@ -527,6 +527,10 @@ export class ShellComponent {
       title: 'Platform',
       items: [
         { path: '/projects', label: 'Projects', icon: 'folder-git-2', permission: 'projects:read' },
+        // Models follows the GPU (ADR-080 §6): the entry appears when a team
+        // server carries an observed accelerator, or a model already exists —
+        // never orphan what exists. See modelsVisible below.
+        { path: '/models', label: 'Models', icon: 'cpu', permission: 'models:read' },
         { path: '/servers', label: 'Servers', icon: 'server', permission: 'servers:read' },
         { path: '/sources', label: 'Sources', icon: 'git-branch', permission: 'sources:read' },
       ],
@@ -591,10 +595,39 @@ export class ShellComponent {
     this.sections
       .map((section) => ({
         ...section,
-        items: section.items.filter((item) => !item.permission || this.api.can(item.permission)),
+        items: section.items.filter(
+          (item) =>
+            (!item.permission || this.api.can(item.permission)) &&
+            (item.path !== '/models' || this.modelsVisible()),
+        ),
       }))
       .filter((section) => section.items.length > 0),
   );
+
+  /**
+   * The Models entry follows the GPU (ADR-080 §6): false until a probe finds
+   * an observed accelerator on a team server, or an existing model — an entry
+   * whose page could only say "no GPU anywhere" is noise. Probe failures show
+   * the entry rather than hide a section on a network hiccup.
+   */
+  protected readonly modelsVisible = signal(false);
+
+  private async probeModels(): Promise<void> {
+    if (!this.api.can('models:read')) {
+      return;
+    }
+    try {
+      const [servers, models] = await Promise.all([
+        this.api.client().listServers({ limit: 100 }),
+        this.api.client().listModels({ limit: 1 }),
+      ]);
+      this.modelsVisible.set(
+        servers.data.some((server) => !!server.gpu_name) || models.data.length > 0,
+      );
+    } catch {
+      this.modelsVisible.set(true);
+    }
+  }
 
   /** Labels for the topbar breadcrumb, keyed by first URL segment. */
   private readonly sectionLabels: Record<string, string> = {
@@ -602,6 +635,7 @@ export class ShellComponent {
     applications: 'applications',
     services: 'services',
     databases: 'databases',
+    models: 'models',
     servers: 'servers',
     sources: 'sources',
     'external-endpoints': 'tunnels',
@@ -665,6 +699,7 @@ export class ShellComponent {
 
   constructor() {
     void this.load();
+    void this.probeModels();
   }
 
   private async load(): Promise<void> {

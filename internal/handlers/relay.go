@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 
@@ -37,6 +38,12 @@ func (a *API) AgentRelay(w http.ResponseWriter, r *http.Request) {
 	defer a.Logger.Info("agent relay closed", "server_id", token.ServerID)
 
 	wc := agentwire.NewConn(ctx, conn)
+	// The relay's own dead-peer detection: a worker process that died mid-job
+	// otherwise leaves this loop reading a socket nobody will ever write to.
+	go func() {
+		wc.Keepalive(30*time.Second, 10*time.Second)
+		cancel()
+	}()
 	senderFor := func() (dockerruntime.CommandSender, bool) { return a.AgentRPC.Sender(token.ServerID) }
 	relayLoop(ctx, conn, wc, senderFor)
 }

@@ -30,6 +30,18 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 	if token, err := a.Store.GetAgentTokenByServerID(r.Context(), s.ID); err == nil {
 		agentSeen = timePtr(token.LastSeenAt)
 	}
+	// The ADR-077 edge designation, as its public uuid. Best effort like the
+	// key: "" would only happen if the edge row vanished mid-request.
+	var edgeUUID *string
+	if s.EdgeServerID != nil {
+		if edge, err := a.Store.GetServerByID(r.Context(), *s.EdgeServerID); err == nil {
+			edgeUUID = ptr(uuidString(edge.Uuid))
+		}
+	}
+	var gpuMemoryMB *int
+	if s.GpuMemoryMb != nil {
+		gpuMemoryMB = ptr(int(*s.GpuMemoryMb))
+	}
 	return api.Server{
 		AgentConnected:    ptr(a.Agents.Connected(s.ID)),
 		AgentSeenAt:       agentSeen,
@@ -39,6 +51,8 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 		Host:              s.Host,
 		Port:              int(s.Port),
 		User:              s.SshUser,
+		UseSudo:           ptr(s.UseSudo),
+		EdgeServerUuid:    edgeUUID,
 		PrivateKeyUuid:    privateKeyUUID,
 		SshTimeoutSeconds: ptr(int(s.SshTimeoutSeconds)),
 		IsBuildServer:     ptr(s.IsBuildServer),
@@ -57,6 +71,9 @@ func (a *API) serverToAPI(r *http.Request, s store.Server, privateKeyUUID string
 		ObservedAt:           timePtr(s.ObservedAt),
 		Architecture:         arch,
 		DockerVersion:        s.DockerVersion,
+		GpuName:              s.GpuName,
+		GpuMemoryMb:          gpuMemoryMB,
+		HfTokenSet:           ptr(len(s.HfTokenEnc) > 0),
 		CleanupEnabled:       ptr(s.CleanupEnabled),
 		CleanupCron:          s.CleanupCron,
 		CleanupPruneVolumes:  ptr(s.CleanupPruneVolumes),
@@ -85,6 +102,43 @@ func (a *API) privateKeyUUIDByID(r *http.Request, keyID int64) string {
 		return ""
 	}
 	return uuidString(key.Uuid)
+}
+
+// resolveEdgeServer resolves and vets an ADR-077 edge designation for origin
+// (zero-ID at creation, when self-reference and chains-below are impossible).
+// Uniform 404 across the team boundary, named 422s for the eligibility rules:
+// an edge must run a managed proxy, and no relay may chain in either
+// direction — through an edge that itself relays, or onto a server that
+// others already relay through.
+func (a *API) resolveEdgeServer(w http.ResponseWriter, r *http.Request, id *auth.Identity, edgeUUID string, origin store.Server) (*int64, bool) {
+	edge, ok := a.resolveServer(w, r, id, edgeUUID)
+	if !ok {
+		return nil, false
+	}
+	fail := func(message string) (*int64, bool) {
+		httpapi.WriteValidationError(w, r, []api.ErrorDetail{{
+			Field: ptr("edge_server_uuid"), Code: ptr("invalid"), Message: message,
+		}})
+		return nil, false
+	}
+	if origin.ID != 0 && edge.ID == origin.ID {
+		return fail("a server cannot be its own edge")
+	}
+	if edge.EdgeServerID != nil {
+		return fail("the designated edge itself relays through an edge — chains are refused (ADR-077)")
+	}
+	if edge.ProxyType != store.ProxyTypeTraefik {
+		return fail("the designated edge runs no managed proxy — the relay is carried by its Traefik (ADR-077)")
+	}
+	if origin.ID != 0 {
+		if n, err := a.Store.CountServersUsingEdge(r.Context(), &origin.ID); err != nil {
+			a.internalError(w, r, "edge designation", err)
+			return nil, false
+		} else if n > 0 {
+			return fail("other servers relay through this one — an edge cannot itself relay (ADR-077)")
+		}
+	}
+	return &edge.ID, true
 }
 
 // ListServers implements GET /servers (permission: read).
@@ -217,10 +271,20 @@ func (a *API) CreateServer(w http.ResponseWriter, r *http.Request, params api.Cr
 		return
 	}
 
+	var edgeServerID *int64
+	if body.EdgeServerUuid != nil && *body.EdgeServerUuid != "" {
+		edgeServerID, ok = a.resolveEdgeServer(w, r, id, *body.EdgeServerUuid, store.Server{})
+		if !ok {
+			return
+		}
+	}
+
 	isBuild := body.IsBuildServer != nil && *body.IsBuildServer
+	useSudo := body.UseSudo != nil && *body.UseSudo
 	server, err := a.Store.CreateServer(r.Context(), store.CreateServerParams{
 		TeamID: id.TeamID, Name: body.Name, Description: body.Description,
-		Host: body.Host, Port: int32(port), SshUser: user,
+		Host: body.Host, Port: int32(port), SshUser: user, UseSudo: useSudo,
+		EdgeServerID:      edgeServerID,
 		SshTimeoutSeconds: int32(timeout), PrivateKeyID: key.ID,
 		IsBuildServer: isBuild, WildcardDomain: body.WildcardDomain,
 		DnsCredentialID: dnsCredentialID,
@@ -296,6 +360,34 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 	}
 	if body.User != nil && *body.User != next.SshUser {
 		next.SshUser, connectivityChanged = *body.User, true
+	}
+	// Not connectivity in the TCP sense, but the same consequence: every
+	// remote command changes its execution identity (ADR-076), so nothing
+	// proven by the last validation still holds.
+	if body.UseSudo != nil && *body.UseSudo != next.UseSudo {
+		next.UseSudo, connectivityChanged = *body.UseSudo, true
+	}
+	// The ADR-077 edge designation. Changing it never revalidates (SSH is
+	// untouched) but must converge two things the update itself cannot: the
+	// relay file moves off the former edge onto the new one, and the origin's
+	// static config gains or drops its PROXY protocol trust — both enqueued
+	// after the write succeeds.
+	edgeChanged := false
+	var formerEdgeID *int64
+	if body.EdgeServerUuid != nil {
+		if *body.EdgeServerUuid == "" {
+			if next.EdgeServerID != nil {
+				formerEdgeID, next.EdgeServerID, edgeChanged = next.EdgeServerID, nil, true
+			}
+		} else {
+			edgeID, ok := a.resolveEdgeServer(w, r, id, *body.EdgeServerUuid, server)
+			if !ok {
+				return
+			}
+			if next.EdgeServerID == nil || *next.EdgeServerID != *edgeID {
+				formerEdgeID, next.EdgeServerID, edgeChanged = next.EdgeServerID, edgeID, true
+			}
+		}
 	}
 	if body.SshTimeoutSeconds != nil {
 		next.SshTimeoutSeconds = int32(*body.SshTimeoutSeconds)
@@ -399,7 +491,8 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 
 	rows, err := a.Store.UpdateServer(r.Context(), store.UpdateServerParams{
 		ID: server.ID, Name: next.Name, Description: next.Description,
-		Host: next.Host, Port: next.Port, SshUser: next.SshUser,
+		Host: next.Host, Port: next.Port, SshUser: next.SshUser, UseSudo: next.UseSudo,
+		EdgeServerID:      next.EdgeServerID,
 		SshTimeoutSeconds: next.SshTimeoutSeconds, PrivateKeyID: next.PrivateKeyID,
 		IsBuildServer: next.IsBuildServer, WildcardDomain: next.WildcardDomain,
 		DnsCredentialID: next.DnsCredentialID,
@@ -429,6 +522,32 @@ func (a *API) UpdateServer(w http.ResponseWriter, r *http.Request, serverUuid ap
 	if err != nil {
 		a.internalError(w, r, "reload server", err)
 		return
+	}
+	if edgeChanged {
+		// Two convergences the row change cannot carry by itself (ADR-077),
+		// both best-effort like the routing regeneration above: the relay
+		// file leaves the former edge and lands on the new one…
+		if _, err := queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
+			Queue: "deploy", Type: jobs.TypeEdgeSync,
+			Payload: jobs.EdgeSyncPayload{ServerID: server.ID, RemoveFromServerID: formerEdgeID},
+			TeamID:  ptr(id.TeamID),
+		}); err != nil {
+			a.Logger.Warn("failed to enqueue edge relay sync", "error", err)
+		}
+		// …and the ORIGIN's static config gains or drops its PROXY protocol
+		// trust — an entrypoint setting only a new proxy container reads
+		// (§1.4), which is exactly what a start converges. Only when the
+		// operator's intent is running: an explicitly stopped proxy is never
+		// repaired behind their back (ADR-062).
+		if updated.ProxyType == store.ProxyTypeTraefik && updated.ProxyDesiredState == store.ProxyDesiredStateRunning {
+			if _, err := queue.Enqueue(r.Context(), a.Store, queue.EnqueueOptions{
+				Queue: "deploy", Type: jobs.TypeProxyStart,
+				Payload: jobs.ProxyLifecyclePayload{ServerID: server.ID, Action: "start"},
+				TeamID:  ptr(id.TeamID),
+			}); err != nil {
+				a.Logger.Warn("failed to enqueue proxy convergence after edge change", "error", err)
+			}
+		}
 	}
 	w.Header().Set("ETag", etagFor(updated.Version))
 	httpapi.WriteJSON(w, http.StatusOK, a.serverToAPI(r, updated, a.privateKeyUUIDByID(r, updated.PrivateKeyID), a.dnsCredentialUUIDByID(r, updated.DnsCredentialID)))

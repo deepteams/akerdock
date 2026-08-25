@@ -34,6 +34,13 @@ const (
 	PermDatabasesDelete    Permission = "databases:delete"
 	PermDatabasesLifecycle Permission = "databases:lifecycle"
 
+	PermModelsRead        Permission = "models:read"
+	PermModelsCreate      Permission = "models:create"
+	PermModelsUpdate      Permission = "models:update"
+	PermModelsDelete      Permission = "models:delete"
+	PermModelsLifecycle   Permission = "models:lifecycle"
+	PermModelsCredentials Permission = "models:credentials"
+
 	PermServicesRead   Permission = "services:read"
 	PermServicesManage Permission = "services:manage"
 	PermServicesDeploy Permission = "services:deploy"
@@ -152,6 +159,11 @@ var Catalog = map[string]Permission{
 	"databases:read": PermRead, "databases:create": PermWrite,
 	"databases:update": PermWrite, "databases:delete": PermWrite,
 	"databases:lifecycle": PermDeploy, "databases:credentials": PermReadSensitive,
+	// Models (ADR-080). models:credentials mirrors databases:credentials —
+	// the endpoint key exists to be read back into a client's configuration.
+	"models:read": PermRead, "models:create": PermWrite,
+	"models:update": PermWrite, "models:delete": PermWrite,
+	"models:lifecycle": PermDeploy, "models:credentials": PermReadSensitive,
 	// Services (compose)
 	"services:read": PermRead, "services:manage": PermWrite, "services:deploy": PermDeploy,
 	// Secrets / env vars

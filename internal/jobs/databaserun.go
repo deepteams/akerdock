@@ -414,7 +414,9 @@ func (h *DatabaseRun) applyTCPRoute(ctx context.Context, rt dockerruntime.Runtim
 		if run, _ := proxyBootstrapDecision(server); !run || sshClient == nil {
 			return nil
 		}
-		return bootstrapProxy(ctx, h.Store, h.Keyring, sshClient, rt, ops, server, true, h.ControlPlanePort)
+		return bootstrapProxy(ctx, h.Store, h.Keyring, sshClient, rt, ops,
+			&EdgeSyncer{Store: h.Store, Docker: h.Docker, Host: h.HostOps, Logger: h.Logger},
+			server, true, h.ControlPlanePort)
 	}
 
 	routePath := "/var/lib/akerdock/proxy/dynamic/" + dbUUID + ".yaml"

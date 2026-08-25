@@ -66,6 +66,12 @@ var exempt = map[string]string{
 	// carried the table, so no running binary can depend on it. Deferring the
 	// drop would protect nobody.
 	"00082_drop_scoped_role_assignments.sql": "table created by 00081 and withdrawn by 00082 (ADR-047) before any release",
+	// memory_fraction was born `real` in 00102 and widened to double
+	// precision by 00103 on the same unreleased mainline (ADR-080 — a
+	// float32 poisoned the rendered serve command): no tagged release ever
+	// carried the column, so no N-1 binary can be reading it. The widening
+	// is also value-preserving, which a two-step dance would not improve.
+	"00103_memory_fraction_double.sql": "column created by 00102 and widened by 00103 (ADR-080) before any release",
 }
 
 // addColumn matches an ADD COLUMN and captures its definition, to check that a

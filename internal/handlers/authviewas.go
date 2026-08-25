@@ -81,7 +81,7 @@ func (a *API) ViewAs(w http.ResponseWriter, r *http.Request) {
 		Role           string `json:"role"`
 		CustomRoleUUID string `json:"custom_role_uuid"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil {
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "invalid body")
 		return
 	}

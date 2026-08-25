@@ -1,8 +1,8 @@
 -- Servers (§3, state machine §21.2).
 
 -- name: CreateServer :one
-INSERT INTO servers (team_id, name, description, host, port, ssh_user, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+INSERT INTO servers (team_id, name, description, host, port, ssh_user, use_sudo, ssh_timeout_seconds, private_key_id, is_build_server, wildcard_domain, proxy_type, proxy_http_port, proxy_https_port, dns_credential_id, edge_server_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, sqlc.narg(edge_server_id))
 RETURNING *;
 
 -- name: GetServerByUUID :one
@@ -27,9 +27,11 @@ SELECT * FROM servers WHERE deleted_at IS NULL AND status = 'ready';
 -- name: UpdateServer :execrows
 UPDATE servers SET
     name = $2, description = $3, host = $4, port = $5, ssh_user = $6,
+    use_sudo = sqlc.arg(use_sudo),
     ssh_timeout_seconds = $7, private_key_id = $8, is_build_server = $9,
     wildcard_domain = $10, proxy_type = $11, proxy_http_port = $12,
     proxy_https_port = $13, status = $14, dns_credential_id = sqlc.narg(dns_credential_id),
+    edge_server_id = sqlc.narg(edge_server_id),
     cleanup_enabled = sqlc.arg(cleanup_enabled),
     cleanup_cron = sqlc.narg(cleanup_cron),
     cleanup_disk_threshold_pct = sqlc.narg(cleanup_disk_threshold_pct),
@@ -101,6 +103,14 @@ UPDATE servers SET os_name = $2, architecture = $3, docker_version = $4,
     updated_at = now()
 WHERE id = $1;
 
+-- name: RecordServerGPU :exec
+-- The ADR-079 facts, written by the validation's detect_gpu step. Nullable on
+-- purpose: NULL is "none observed", and a GPU that disappears (driver removed,
+-- card moved) must be able to go back to NULL at the next validation.
+UPDATE servers SET gpu_name = sqlc.narg(gpu_name), gpu_memory_mb = sqlc.narg(gpu_memory_mb),
+    updated_at = now()
+WHERE id = $1;
+
 -- name: CountServersUsingPrivateKey :one
 SELECT count(*) FROM servers WHERE private_key_id = $1 AND deleted_at IS NULL;
 
@@ -121,11 +131,38 @@ LIMIT sqlc.arg(page_limit);
 -- name: ListServerDomains :many
 SELECT r.uuid AS resource_uuid, r.resource_type, dom.fqdn, dom.path, dom.target_port
 FROM domains dom
-JOIN applications a ON a.id = dom.application_id
-JOIN resources r ON r.id = a.id
+JOIN resources r ON r.id = coalesce(dom.application_id, dom.model_id)
 JOIN destinations d ON d.id = r.destination_id
 WHERE d.server_id = $1 AND r.deleted_at IS NULL
 ORDER BY r.uuid, dom.fqdn, dom.path;
+
+-- name: ListServerRelayFQDNs :many
+-- Every public FQDN a server answers for, across the places one can live
+-- (ADR-077): application domains, compose component domains, model domains
+-- (ADR-080) and preview FQDNs. This is what the edge relay file of that server is rebuilt from —
+-- whole, on every routing apply, so the file can never drift from placements.
+-- Previews are included from `queued` on (ADR-073: the URL answers from the
+-- moment the PR is opened) and drop out at destruction.
+SELECT dom.fqdn
+FROM domains dom
+LEFT JOIN service_components sc ON sc.id = dom.service_component_id
+JOIN resources r ON r.id = coalesce(dom.application_id, sc.resource_id, dom.model_id)
+JOIN destinations d ON d.id = r.destination_id
+WHERE d.server_id = sqlc.arg(server_id) AND r.deleted_at IS NULL
+UNION
+SELECT p.fqdn
+FROM previews p
+JOIN resources r ON r.id = p.application_id
+JOIN destinations d ON d.id = r.destination_id
+WHERE d.server_id = sqlc.arg(server_id) AND r.deleted_at IS NULL
+  AND p.fqdn IS NOT NULL AND p.status <> 'destroyed'
+ORDER BY 1;
+
+-- name: CountServersUsingEdge :one
+-- How many servers relay through this one (ADR-077): non-zero forbids the
+-- edge itself from designating an edge — no chains.
+SELECT count(*) FROM servers
+WHERE edge_server_id = $1 AND deleted_at IS NULL;
 
 -- name: ListReadyBuildServers :many
 -- The build servers of a team that can actually take a build. A build server
@@ -134,6 +171,12 @@ ORDER BY r.uuid, dom.fqdn, dom.path;
 SELECT * FROM servers
 WHERE team_id = $1 AND is_build_server AND status = 'ready' AND deleted_at IS NULL
 ORDER BY id;
+
+-- name: SetServerHFToken :exec
+-- The ADR-081 per-server token: NULL clears it, and nothing ever selects it
+-- back out on its own — it is decrypted only where it is used (the model
+-- container env).
+UPDATE servers SET hf_token_enc = sqlc.narg(hf_token_enc), updated_at = now() WHERE id = $1;
 
 -- name: SetServerCA :exec
 UPDATE servers SET ca_cert = $2, ca_key_enc = $3, updated_at = now() WHERE id = $1;

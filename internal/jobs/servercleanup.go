@@ -126,7 +126,16 @@ func (h *ServerCleanup) Execute(ctx context.Context, job store.Job, rec *queue.S
 	dial := h.dial
 	if dial == nil {
 		dial = func(ctx context.Context, host string, port int, user, privateKey string, timeout time.Duration, hostKey string) (cleanupRemote, error) {
-			return sshexec.Dial(ctx, host, port, user, privateKey, timeout, hostKey)
+			c, err := sshexec.Dial(ctx, host, port, user, privateKey, timeout, hostKey)
+			if err != nil {
+				return nil, err
+			}
+			// The seam signature carries scalars only; the sudo policy
+			// (ADR-076) rides the captured server row.
+			if server.UseSudo {
+				c.EnableSudo()
+			}
+			return c, nil
 		}
 	}
 	client, err := dial(ctx, server.Host, int(server.Port), server.SshUser, pem,

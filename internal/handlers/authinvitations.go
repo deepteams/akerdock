@@ -237,7 +237,7 @@ func (a *API) AcceptInvitation(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Token string `json:"token"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Token) == "" {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body); err != nil || strings.TrimSpace(body.Token) == "" {
 		httpapi.WriteError(w, r, http.StatusBadRequest, httpapi.CodeBadRequest, "a token is required")
 		return
 	}

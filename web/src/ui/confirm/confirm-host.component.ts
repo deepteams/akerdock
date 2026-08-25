@@ -17,10 +17,26 @@ import { ConfirmService } from './confirm.service';
         (closed)="confirm.settle(false)"
       >
         <p class="akd-muted">{{ pending.message }}</p>
+        @if (pending.bullets.length) {
+          <ul class="akd-muted">
+            @for (line of pending.bullets; track line) {
+              <li>{{ line }}</li>
+            }
+          </ul>
+        }
         <div modal-footer>
           <button class="akd-btn akd-btn--ghost" type="button" (click)="confirm.settle(false)">
             Cancel
           </button>
+          @if (pending.alternativeLabel; as alternative) {
+            <button
+              class="akd-btn akd-btn--secondary"
+              type="button"
+              (click)="confirm.settleChoice('alternative')"
+            >
+              {{ alternative }}
+            </button>
+          }
           <button
             [class]="pending.danger ? 'akd-btn akd-btn--danger' : 'akd-btn akd-btn--primary'"
             type="button"

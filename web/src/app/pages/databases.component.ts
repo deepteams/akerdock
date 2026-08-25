@@ -5,6 +5,7 @@ import { CardComponent } from '../../ui/card/card.component';
 import { EmptyStateComponent } from '../../ui/empty-state/empty-state.component';
 import { IconComponent } from '../../ui/icon/icon.component';
 import { StatusBadgeComponent } from '../../ui/status-badge/status-badge.component';
+import { ModalComponent } from '../../ui/modal/modal.component';
 import { ApiService } from '../core/api.service';
 import { fetchAll } from '../core/pagination';
 import type { components } from '../../api/schema';
@@ -18,6 +19,7 @@ type Server = components['schemas']['Server'];
   selector: 'app-databases',
   standalone: true,
   imports: [
+    ModalComponent,
     FormsModule,
     RouterLink,
     CardComponent,
@@ -36,7 +38,7 @@ type Server = components['schemas']['Server'];
         <span class="grow"></span>
         <button class="akd-btn akd-btn--primary" type="button" (click)="toggleCreate()">
           <akd-icon name="plus" [size]="15" />
-          {{ creating() ? 'Cancel' : 'New PostgreSQL database' }}
+          New PostgreSQL database
         </button>
       </header>
 
@@ -44,8 +46,8 @@ type Server = components['schemas']['Server'];
         <p class="akd-error" role="alert">{{ message }}</p>
       }
 
-      @if (creating()) {
-        <form class="akd-card create" (ngSubmit)="create()">
+      <akd-modal [open]="creating()" title="New PostgreSQL database" (closed)="creating.set(false)">
+        <form id="db-create-form" class="modal-stack" (ngSubmit)="create()">
           <div class="akd-field">
             <label class="akd-field__label" for="db-name">Name</label>
             <input
@@ -111,13 +113,26 @@ type Server = components['schemas']['Server'];
               </select>
             </div>
           </div>
-          <div>
-            <button class="akd-btn akd-btn--primary" type="submit" [disabled]="busy() || !valid()">
-              {{ busy() ? 'Creating…' : 'Create database' }}
-            </button>
-          </div>
         </form>
-      }
+        <div modal-footer>
+          <button
+            class="akd-btn akd-btn--ghost"
+            type="button"
+            (click)="creating.set(false)"
+            [disabled]="busy()"
+          >
+            Cancel
+          </button>
+          <button
+            class="akd-btn akd-btn--primary"
+            type="submit"
+            form="db-create-form"
+            [disabled]="busy() || !valid()"
+          >
+            {{ busy() ? 'Creating…' : 'Create database' }}
+          </button>
+        </div>
+      </akd-modal>
 
       @if (loading()) {
         <p class="akd-muted">Loading…</p>
@@ -127,12 +142,10 @@ type Server = components['schemas']['Server'];
           title="No databases yet"
           message="Create a managed PostgreSQL — credentials are generated for you."
         >
-          @if (!creating()) {
-            <button class="akd-btn akd-btn--secondary" type="button" (click)="toggleCreate()">
-              <akd-icon name="plus" [size]="15" />
-              New PostgreSQL database
-            </button>
-          }
+          <button class="akd-btn akd-btn--secondary" type="button" (click)="toggleCreate()">
+            <akd-icon name="plus" [size]="15" />
+            New PostgreSQL database
+          </button>
         </akd-empty-state>
       } @else {
         <akd-card [padded]="false">
@@ -185,12 +198,12 @@ type Server = components['schemas']['Server'];
   `,
   styles: [
     `
+      .modal-stack {
+        display: grid;
+        gap: var(--space-4);
+      }
       .grow {
         flex: 1;
-      }
-      .create {
-        margin-bottom: var(--space-5);
-        max-width: 32rem;
       }
     `,
   ],

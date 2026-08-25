@@ -112,10 +112,11 @@ jobs:
       # in scripts/vulncheck-triage.txt. Any NEW advisory still breaks the build.
       - name: govulncheck (Go, triaged)
         run: bash scripts/check-govulncheck.sh
-      # Dashboard advisories: gate on critical only. Transitive highs are triaged,
-      # not build-breaking on day one; tighten once the baseline is clean.
+      # Dashboard advisories: production dependencies gate on high — the
+      # baseline is clean, so anything caught here is new. Dev-only advisories
+      # (build tooling never shipped in the bundle) stay out of the gate.
       - name: npm audit (dashboard)
-        run: npm --prefix web audit --audit-level=critical
+        run: npm --prefix web audit --omit=dev --audit-level=high
       # Cross-ecosystem advisory scan (Go + npm lockfiles), including unfixable
       # transitive ones — reported, not yet a gate, so it informs triage without
       # breaking main. Promote to a gate once the baseline is triaged.

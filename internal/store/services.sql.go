@@ -193,7 +193,7 @@ func (q *Queries) GetServiceStackByUUID(ctx context.Context, arg GetServiceStack
 }
 
 const listServiceComponentDomains = `-- name: ListServiceComponentDomains :many
-SELECT dom.id, dom.uuid, dom.application_id, dom.service_component_id, dom.fqdn, dom.path, dom.target_port, dom.is_generated, dom.created_by, dom.created_at, dom.updated_at, dom.ingress_endpoint_id FROM domains dom
+SELECT dom.id, dom.uuid, dom.application_id, dom.service_component_id, dom.fqdn, dom.path, dom.target_port, dom.is_generated, dom.created_by, dom.created_at, dom.updated_at, dom.ingress_endpoint_id, dom.model_id FROM domains dom
 WHERE dom.service_component_id = $1
 ORDER BY dom.fqdn, dom.path
 `
@@ -220,6 +220,7 @@ func (q *Queries) ListServiceComponentDomains(ctx context.Context, serviceCompon
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.IngressEndpointID,
+			&i.ModelID,
 		); err != nil {
 			return nil, err
 		}

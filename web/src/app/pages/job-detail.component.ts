@@ -66,8 +66,26 @@ type ErrorDetail = components['schemas']['ErrorDetail'];
                 Forget
               </button>
             </div>
+          } @else if (cancellable(j)) {
+            <div class="head-actions">
+              <button
+                class="akd-btn akd-btn--secondary akd-btn--sm"
+                type="button"
+                [disabled]="busy()"
+                (click)="cancel(j)"
+              >
+                Cancel
+              </button>
+            </div>
           }
         </header>
+
+        @if (j.cancel_requested_at) {
+          <p class="akd-muted" role="status">
+            Cancellation requested — the job stops at its next checkpoint and compensates on the way
+            out.
+          </p>
+        }
 
         @if (retriedAs(); as newUuid) {
           <p class="akd-muted" role="status">
@@ -267,6 +285,33 @@ export class JobDetailComponent {
 
   protected json(value: unknown): string {
     return JSON.stringify(value, null, 2);
+  }
+
+  /** Cancellable while it has not finished and nobody has asked yet. The API
+   * has the last word — the families without a checkpoint answer 409, which
+   * lands in the error line rather than in a button that lies. */
+  protected cancellable(job: Job): boolean {
+    if (job.cancel_requested_at) return false;
+    return (
+      job.status === 'scheduled' ||
+      job.status === 'queued' ||
+      job.status === 'retry_wait' ||
+      job.status === 'leased' ||
+      job.status === 'running'
+    );
+  }
+
+  protected async cancel(job: Job): Promise<void> {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      await this.api.client().cancelJob(job.uuid);
+      await this.load(job.uuid);
+    } catch (err) {
+      this.error.set(ApiService.describe(err));
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected async retry(job: Job): Promise<void> {

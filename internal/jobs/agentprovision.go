@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
 	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/agentwire"
@@ -240,6 +241,44 @@ func AgentEnvForServer(ctx context.Context, q AgentEnrollmentStore, keyring *env
 // full minute.
 const agentSpec = "11"
 
+// agentSource is the instance's own source coordinates (ADR-078), set once at
+// boot from the -ldflags identity (SetAgentSource) and read by every
+// AgentEnsureCommand rendering. Process-wide on purpose: like the version,
+// which commit this binary IS is a fact of the process, not a dependency of
+// any one caller — and threading it through nine signatures would say
+// otherwise. Empty commit (a registry install, a dirty tree) renders nothing.
+var agentSource struct{ Repo, Commit string }
+
+// SetAgentSource records where and at which commit this build's sources live.
+func SetAgentSource(repo, commit string) {
+	agentSource.Repo, agentSource.Commit = repo, commit
+}
+
+// agentImageEnsure is the ADR-078 prelude of the agent deploy: when the image
+// is absent from the server's daemon and this instance knows its own commit,
+// the server BUILDS the image from the public repository at that exact commit
+// — natively for its own CPU — instead of attempting the registry pull a
+// source-only install can only fail. Renders empty for a registry install
+// (the pull inside `docker run` keeps doing that job) and for a build with no
+// commit (a dirty tree claims nothing, ADR-036's "never a guessed registry").
+func agentImageEnsure(image string) string {
+	if agentSource.Repo == "" || agentSource.Commit == "" {
+		return ""
+	}
+	version := image
+	if i := strings.LastIndex(image, ":"); i > 0 {
+		version = image[i+1:]
+	}
+	// `inspect || build || exit $?`: the build only runs when the image is
+	// absent, and a failed build stops the whole ensure with the BUILD's exit
+	// and stderr — never a follow-up `docker run` whose pull error would bury
+	// the real cause.
+	return fmt.Sprintf("docker image inspect %s >/dev/null 2>&1 || "+
+		"docker build -t %s --build-arg VERSION=%s --build-arg IMAGE=%s --build-arg COMMIT=%s %s || exit $?; ",
+		image, image, shellQuote(version), shellQuote(image),
+		shellQuote(agentSource.Commit), shellQuote(agentSource.Repo+"#"+agentSource.Commit))
+}
+
 // AgentEnsureCommand is the idempotent deploy of the agent helper. It
 // recreates the container when the running image OR the run spec differs (or
 // when it is absent), and STARTS it either way: a helper stopped by hand
@@ -257,7 +296,9 @@ const agentSpec = "11"
 // anyway, so the distroless nonroot default simply cannot read it. Shared by
 // the deploy path (ensureAgent) and the scheduler's cross-server upgrade
 // reconciliation. agentEnv (ADR-040) enrolls the channel loop; empty fields
-// inject nothing and the helper runs waker-only.
+// inject nothing and the helper runs waker-only. An absent image is first
+// rebuilt from the instance's own source commit when one is known (ADR-078,
+// agentImageEnsure).
 func AgentEnsureCommand(network, image string, agentEnv AgentEnv) string {
 	env := ""
 	if agentEnv.InstanceURL != "" && agentEnv.Token != "" {
@@ -271,7 +312,7 @@ func AgentEnsureCommand(network, image string, agentEnv AgentEnv) string {
 	if network != "bridge" {
 		alias = "--network-alias " + proxy.LegacyAgentContainerName + " "
 	}
-	return fmt.Sprintf(
+	return agentImageEnsure(image) + fmt.Sprintf(
 		"mkdir -p %s && "+
 			"img=$(docker inspect -f '{{.Config.Image}}' %s 2>/dev/null || true); "+
 			"spec=$(docker inspect -f '{{index .Config.Labels \"akerdock.agent_spec\"}}' %s 2>/dev/null || true); "+

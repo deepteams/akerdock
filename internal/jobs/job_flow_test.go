@@ -298,6 +298,7 @@ var jobEnumValues = map[string]string{
 	"NotificationDeliveryStatus": "delivered",
 	"NotificationSeverity":       "info",
 	"PreviewProtection":          "none",
+	"InferenceEngine":            "vllm",
 	"PreviewStatus":              "destroyed",
 	"ProxyDesiredState":          "running",
 	"ProxyRevisionStatus":        "active",

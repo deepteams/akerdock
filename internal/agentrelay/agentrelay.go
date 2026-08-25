@@ -167,6 +167,14 @@ func (s *Source) dial(ctx context.Context, serverID int64) (*relayConn, error) {
 	connCtx, connCancel := context.WithCancel(context.Background())
 	c := &relayConn{Conn: agentwire.NewConn(connCtx, ws), ws: ws, cancel: connCancel}
 	go c.readLoop(connCtx)
+	// Dead-peer detection, the agent channel's (ADR-041 §2) one hop further
+	// out: without it a worker whose api process vanished waits on a command
+	// that will never be answered, and the job holding the model's lock looks
+	// alive for as long as the kernel keeps retransmitting.
+	go func() {
+		c.Keepalive(30*time.Second, 10*time.Second)
+		connCancel()
+	}()
 	if s.Logger != nil {
 		s.Logger.Info("agent relay dialed", "server_id", serverID, "url", url)
 	}

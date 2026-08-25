@@ -1186,6 +1186,150 @@ func (e MemberRoleUpdateRole) Valid() bool {
 	}
 }
 
+// Defines values for ModelEngine.
+const (
+	ModelEngineSglang ModelEngine = "sglang"
+	ModelEngineVllm   ModelEngine = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the ModelEngine enum.
+func (e ModelEngine) Valid() bool {
+	switch e {
+	case ModelEngineSglang:
+		return true
+	case ModelEngineVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelModality.
+const (
+	ModelModalityOmni ModelModality = "omni"
+	ModelModalityText ModelModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelModality enum.
+func (e ModelModality) Valid() bool {
+	switch e {
+	case ModelModalityOmni:
+		return true
+	case ModelModalityText:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCommandPreviewRequestEngine.
+const (
+	ModelCommandPreviewRequestEngineSglang ModelCommandPreviewRequestEngine = "sglang"
+	ModelCommandPreviewRequestEngineVllm   ModelCommandPreviewRequestEngine = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the ModelCommandPreviewRequestEngine enum.
+func (e ModelCommandPreviewRequestEngine) Valid() bool {
+	switch e {
+	case ModelCommandPreviewRequestEngineSglang:
+		return true
+	case ModelCommandPreviewRequestEngineVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCommandPreviewRequestModality.
+const (
+	ModelCommandPreviewRequestModalityOmni ModelCommandPreviewRequestModality = "omni"
+	ModelCommandPreviewRequestModalityText ModelCommandPreviewRequestModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelCommandPreviewRequestModality enum.
+func (e ModelCommandPreviewRequestModality) Valid() bool {
+	switch e {
+	case ModelCommandPreviewRequestModalityOmni:
+		return true
+	case ModelCommandPreviewRequestModalityText:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCreateEngine.
+const (
+	ModelCreateEngineSglang ModelCreateEngine = "sglang"
+	ModelCreateEngineVllm   ModelCreateEngine = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the ModelCreateEngine enum.
+func (e ModelCreateEngine) Valid() bool {
+	switch e {
+	case ModelCreateEngineSglang:
+		return true
+	case ModelCreateEngineVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelCreateModality.
+const (
+	ModelCreateModalityOmni ModelCreateModality = "omni"
+	ModelCreateModalityText ModelCreateModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelCreateModality enum.
+func (e ModelCreateModality) Valid() bool {
+	switch e {
+	case ModelCreateModalityOmni:
+		return true
+	case ModelCreateModalityText:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelParseResultEngine.
+const (
+	ModelParseResultEngineSglang ModelParseResultEngine = "sglang"
+	ModelParseResultEngineVllm   ModelParseResultEngine = "vllm"
+)
+
+// Valid indicates whether the value is a known member of the ModelParseResultEngine enum.
+func (e ModelParseResultEngine) Valid() bool {
+	switch e {
+	case ModelParseResultEngineSglang:
+		return true
+	case ModelParseResultEngineVllm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelParseResultModality.
+const (
+	ModelParseResultModalityOmni ModelParseResultModality = "omni"
+	ModelParseResultModalityText ModelParseResultModality = "text"
+)
+
+// Valid indicates whether the value is a known member of the ModelParseResultModality enum.
+func (e ModelParseResultModality) Valid() bool {
+	switch e {
+	case ModelParseResultModalityOmni:
+		return true
+	case ModelParseResultModalityText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NotificationChannelKind.
 const (
 	NotificationChannelKindDiscord  NotificationChannelKind = "discord"
@@ -3769,6 +3913,13 @@ type EncryptionStatus struct {
 	RotationJobUuid *string `json:"rotation_job_uuid,omitempty"`
 }
 
+// EngineFlag One tier-2 entry (ADR-080 §1): an upstream engine flag preserved verbatim, in the operator's order. No value means a boolean flag. Reserved flags (--host, --port, --api-key, --download-dir, --hf-token), the invocation markers the form carries as a field (--omni, ADR-083) and the typed knobs' own spellings are refused by name.
+type EngineFlag struct {
+	// Flag The flag as the engine spells it (`--like-this`).
+	Flag  string  `json:"flag"`
+	Value *string `json:"value,omitempty"`
+}
+
 // Environment A project's environment — contains the resources (§2).
 type Environment struct {
 	CreatedAt   *time.Time `json:"created_at,omitempty"`
@@ -4043,6 +4194,14 @@ type HealthStatus struct {
 // HealthStatusStatus Always `ok` if the control plane responds.
 type HealthStatusStatus string
 
+// HubModel defines model for HubModel.
+type HubModel struct {
+	Downloads *int   `json:"downloads,omitempty"`
+	Gated     *bool  `json:"gated,omitempty"`
+	Id        string `json:"id"`
+	Likes     *int   `json:"likes,omitempty"`
+}
+
 // IngressEndpoint A declared public URL relayed to a developer's machine (ADR-060). The FQDN is stable and registered in the routing namespace at declaration; the router and certificate are pre-provisioned, so attaching later is instant. noindex and forced HTTPS are unconditional and therefore not fields.
 type IngressEndpoint struct {
 	// Access The ADR-042 wall vocabulary. `sso` (the default) admits the team's authenticated users and nobody else; `none` is the conscious opt-out for third-party webhooks — an admin-level, audited act.
@@ -4255,8 +4414,11 @@ type InvitationCreateRole string
 // Job Asynchronous operation created by a `202` response (§21.3, §24.1).
 type Job struct {
 	// Attempt Attempt number (retries §21.3).
-	Attempt   *int       `json:"attempt,omitempty"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Attempt *int `json:"attempt,omitempty"`
+
+	// CancelRequestedAt When a cooperative cancellation was asked for. The job keeps its running status until it reaches its next checkpoint — this is what distinguishes "still running" from "stopping".
+	CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+	CreatedAt         *time.Time `json:"created_at,omitempty"`
 
 	// DeadLetteredAt Transition to dead-letter, if any (§21.3).
 	DeadLetteredAt *time.Time `json:"dead_lettered_at,omitempty"`
@@ -4408,6 +4570,186 @@ type MemberRoleUpdate struct {
 
 // MemberRoleUpdateRole defines model for MemberRoleUpdate.Role.
 type MemberRoleUpdateRole string
+
+// Model An inference model resource (ADR-080).
+type Model struct {
+	// ActiveJob The queued or running lifecycle job of this model, when one exists — the platform refuses to queue a second one (409). It can be cancelled at any point (POST /jobs/{uuid}/cancel): queued, it stops outright; running, it stops at its next checkpoint.
+	ActiveJob *struct {
+		// CancelRequestedAt Set once a cancellation has been asked for — the job is stopping, and asking again changes nothing.
+		CancelRequestedAt *time.Time `json:"cancel_requested_at,omitempty"`
+		JobType           string     `json:"job_type"`
+		Status            string     `json:"status"`
+		Uuid              string     `json:"uuid"`
+	} `json:"active_job,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	Description *string   `json:"description,omitempty"`
+
+	// Domains Public domains routed to this model (ADR-077).
+	Domains *[]string `json:"domains,omitempty"`
+
+	// Endpoint OpenAI-compatible base URL on the server's LAN address (`http://<server-host>:<port>/v1`). With a public domain, the same API also answers on `https://<domain>/v1`.
+	Endpoint        *string       `json:"endpoint,omitempty"`
+	Engine          ModelEngine   `json:"engine"`
+	EngineFlags     *[]EngineFlag `json:"engine_flags,omitempty"`
+	EnvironmentUuid *string       `json:"environment_uuid,omitempty"`
+	Image           *string       `json:"image,omitempty"`
+	ImageTag        *string       `json:"image_tag,omitempty"`
+	MaxModelLen     *int          `json:"max_model_len,omitempty"`
+	MemoryFraction  *float64      `json:"memory_fraction,omitempty"`
+
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality   ModelModality `json:"modality"`
+	ModelId    string        `json:"model_id"`
+	Name       string        `json:"name"`
+	ObservedAt *time.Time    `json:"observed_at,omitempty"`
+
+	// ObservedStatus Observed state of a resource (§21.2) — `unknown` if the observation is too old (stale).
+	ObservedStatus  *ObservedStatus `json:"observed_status,omitempty"`
+	ProjectUuid     *string         `json:"project_uuid,omitempty"`
+	PublishedPort   int             `json:"published_port"`
+	Quantization    *string         `json:"quantization,omitempty"`
+	ServedModelName *string         `json:"served_model_name,omitempty"`
+	ServerGpuName   *string         `json:"server_gpu_name,omitempty"`
+	ServerName      *string         `json:"server_name,omitempty"`
+	ServerUuid      string          `json:"server_uuid"`
+	ShmSizeMb       *int            `json:"shm_size_mb,omitempty"`
+
+	// Status Desired status (running/stopped).
+	Status             string     `json:"status"`
+	TensorParallelSize *int       `json:"tensor_parallel_size,omitempty"`
+	UpdatedAt          *time.Time `json:"updated_at,omitempty"`
+	Uuid               *string    `json:"uuid,omitempty"`
+	Version            int        `json:"version"`
+}
+
+// ModelEngine defines model for Model.Engine.
+type ModelEngine string
+
+// ModelModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelModality string
+
+// ModelCommand defines model for ModelCommand.
+type ModelCommand struct {
+	// Command The human serve command, by the deployment's renderer.
+	Command string `json:"command"`
+
+	// Masked True when the API key is shown as `****`.
+	Masked bool `json:"masked"`
+}
+
+// ModelCommandPreviewRequest defines model for ModelCommandPreviewRequest.
+type ModelCommandPreviewRequest struct {
+	Engine         ModelCommandPreviewRequestEngine `json:"engine"`
+	EngineFlags    *[]EngineFlag                    `json:"engine_flags,omitempty"`
+	MaxModelLen    *int                             `json:"max_model_len,omitempty"`
+	MemoryFraction *float64                         `json:"memory_fraction,omitempty"`
+
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality           *ModelCommandPreviewRequestModality `json:"modality,omitempty"`
+	ModelId            string                              `json:"model_id"`
+	Quantization       *string                             `json:"quantization,omitempty"`
+	ServedModelName    *string                             `json:"served_model_name,omitempty"`
+	TensorParallelSize *int                                `json:"tensor_parallel_size,omitempty"`
+}
+
+// ModelCommandPreviewRequestEngine defines model for ModelCommandPreviewRequest.Engine.
+type ModelCommandPreviewRequestEngine string
+
+// ModelCommandPreviewRequestModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelCommandPreviewRequestModality string
+
+// ModelCreate defines model for ModelCreate.
+type ModelCreate struct {
+	Description *string `json:"description,omitempty"`
+
+	// Domains Optional public domains (`fqdn` or `fqdn/path`) routed by the server's managed proxy — through its edge relay when the server is LAN-only (ADR-077). Empty = the model answers only on the server's LAN address. Routes always target the engine port; `fqdn:port` elements are refused.
+	Domains         *[]string         `json:"domains,omitempty"`
+	Engine          ModelCreateEngine `json:"engine"`
+	EngineFlags     *[]EngineFlag     `json:"engine_flags,omitempty"`
+	EnvironmentUuid string            `json:"environment_uuid"`
+
+	// Image Image override. Null uses the per-engine, per-architecture default (a GB10 server needs sm_121a builds).
+	Image        *string `json:"image,omitempty"`
+	ImageTag     *string `json:"image_tag,omitempty"`
+	InstantStart *bool   `json:"instant_start,omitempty"`
+	MaxModelLen  *int    `json:"max_model_len,omitempty"`
+
+	// MemoryFraction The one memory knob (ADR-080 §1), rendered as the engine's own flag — --gpu-memory-utilization on vLLM, --mem-fraction-static on SGLang. Null uses the engine default.
+	MemoryFraction *float64 `json:"memory_fraction,omitempty"`
+
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality *ModelCreateModality `json:"modality,omitempty"`
+
+	// ModelId Hugging Face model reference.
+	ModelId     string `json:"model_id"`
+	Name        string `json:"name"`
+	ProjectUuid string `json:"project_uuid"`
+
+	// PublishedPort LAN endpoint port on the server; omitted = allocated.
+	PublishedPort   *int    `json:"published_port,omitempty"`
+	Quantization    *string `json:"quantization,omitempty"`
+	ServedModelName *string `json:"served_model_name,omitempty"`
+
+	// ServerUuid Target server — must carry an observed GPU (ADR-079).
+	ServerUuid         string `json:"server_uuid"`
+	ShmSizeMb          *int   `json:"shm_size_mb,omitempty"`
+	TensorParallelSize *int   `json:"tensor_parallel_size,omitempty"`
+}
+
+// ModelCreateEngine defines model for ModelCreate.Engine.
+type ModelCreateEngine string
+
+// ModelCreateModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelCreateModality string
+
+// ModelCredentials defines model for ModelCredentials.
+type ModelCredentials struct {
+	ApiKey   string `json:"api_key"`
+	Endpoint string `json:"endpoint"`
+}
+
+// ModelParseResult defines model for ModelParseResult.
+type ModelParseResult struct {
+	Engine         ModelParseResultEngine `json:"engine"`
+	EngineFlags    []EngineFlag           `json:"engine_flags"`
+	MaxModelLen    *int                   `json:"max_model_len,omitempty"`
+	MemoryFraction *float64               `json:"memory_fraction,omitempty"`
+
+	// Modality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+	Modality ModelParseResultModality `json:"modality"`
+	ModelId  string                   `json:"model_id"`
+
+	// Notices What the import dropped, and why — never silent.
+	Notices            []string `json:"notices"`
+	Quantization       *string  `json:"quantization,omitempty"`
+	ServedModelName    *string  `json:"served_model_name,omitempty"`
+	TensorParallelSize *int     `json:"tensor_parallel_size,omitempty"`
+}
+
+// ModelParseResultEngine defines model for ModelParseResult.Engine.
+type ModelParseResultEngine string
+
+// ModelParseResultModality Serving modality (ADR-083). `text` is the engine's own server; `omni` is its omni sibling (vLLM-Omni, SGLang-Omni) for speech, audio, image and video models. The engine still decides every flag spelling; the modality decides the invocation, requires an explicit `image`, and is immutable after creation.
+type ModelParseResultModality string
+
+// ModelUpdate Engine, server and published port are immutable. Changes take effect at the next start (ADR-080 §5).
+type ModelUpdate struct {
+	Description *string `json:"description,omitempty"`
+
+	// Domains Full replacement of the model's public domains. Unlike the other fields, routing is regenerated immediately.
+	Domains            *[]string     `json:"domains,omitempty"`
+	EngineFlags        *[]EngineFlag `json:"engine_flags,omitempty"`
+	Image              *string       `json:"image,omitempty"`
+	ImageTag           *string       `json:"image_tag,omitempty"`
+	MaxModelLen        *int          `json:"max_model_len,omitempty"`
+	MemoryFraction     *float64      `json:"memory_fraction,omitempty"`
+	ModelId            *string       `json:"model_id,omitempty"`
+	Name               *string       `json:"name,omitempty"`
+	Quantization       *string       `json:"quantization,omitempty"`
+	ServedModelName    *string       `json:"served_model_name,omitempty"`
+	ShmSizeMb          *int          `json:"shm_size_mb,omitempty"`
+	TensorParallelSize *int          `json:"tensor_parallel_size,omitempty"`
+}
 
 // NextCursor Opaque cursor of the next page — `null` on the last page.
 type NextCursor = string
@@ -5096,8 +5438,20 @@ type Server struct {
 
 	// DockerVersion Docker Engine version detected (≥ 24 required, §3.1).
 	DockerVersion *string `json:"docker_version,omitempty"`
-	Host          string  `json:"host"`
-	IsBuildServer *bool   `json:"is_build_server,omitempty"`
+
+	// EdgeServerUuid Server that answers this server's public routes by SNI passthrough (ADR-077); null when the server serves its own.
+	EdgeServerUuid *string `json:"edge_server_uuid,omitempty"`
+
+	// GpuMemoryMb GPU memory reported by the driver in MiB (a unified-memory machine reports the shared pool).
+	GpuMemoryMb *int `json:"gpu_memory_mb,omitempty"`
+
+	// GpuName GPU observed at validation (ADR-079) — a fact, not a setting. Null means none observed, or a card Docker cannot hand to containers (missing NVIDIA runtime, named in the validation).
+	GpuName *string `json:"gpu_name,omitempty"`
+
+	// HfTokenSet A per-server Hugging Face token is stored (ADR-081). Write-only: set/replace/clear via PUT /servers/{uuid}/hf-token, never read back.
+	HfTokenSet    *bool  `json:"hf_token_set,omitempty"`
+	Host          string `json:"host"`
+	IsBuildServer *bool  `json:"is_build_server,omitempty"`
 
 	// IsLocalhost True for the `localhost` server pre-registered at bootstrap (instance-config §6.2) — the machine hosting the instance. Never settable through the API.
 	IsLocalhost *bool `json:"is_localhost,omitempty"`
@@ -5122,12 +5476,15 @@ type Server struct {
 	SshTimeoutSeconds   *int             `json:"ssh_timeout_seconds,omitempty"`
 
 	// Status Server lifecycle (§21.2).
-	Status         *ServerStatus `json:"status,omitempty"`
-	UpdatedAt      *time.Time    `json:"updated_at,omitempty"`
-	User           string        `json:"user"`
-	Uuid           *string       `json:"uuid,omitempty"`
-	Version        *int          `json:"version,omitempty"`
-	WildcardDomain *string       `json:"wildcard_domain,omitempty"`
+	Status    *ServerStatus `json:"status,omitempty"`
+	UpdatedAt *time.Time    `json:"updated_at,omitempty"`
+
+	// UseSudo Every remote command is escalated through non-interactive `sudo -n` (ADR-076, §3.1 non-root contract).
+	UseSudo        *bool   `json:"use_sudo,omitempty"`
+	User           string  `json:"user"`
+	Uuid           *string `json:"uuid,omitempty"`
+	Version        *int    `json:"version,omitempty"`
+	WildcardDomain *string `json:"wildcard_domain,omitempty"`
 }
 
 // ServerArchitecture Architecture detected at validation.
@@ -5149,6 +5506,9 @@ type ServerCreate struct {
 	// DnsCredentialUuid DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01.
 	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
 
+	// EdgeServerUuid Server that answers this server's public routes (ADR-077), for a server the internet cannot reach directly. The designated edge relays by TLS SNI passthrough — it holds no certificate and no key; certificates, access walls and noindex stay on this server. Must belong to the same team, run a Traefik proxy, and not itself relay through an edge (no chains).
+	EdgeServerUuid *string `json:"edge_server_uuid,omitempty"`
+
 	// Host IP address or FQDN reachable over SSH.
 	Host string `json:"host"`
 
@@ -5169,6 +5529,9 @@ type ServerCreate struct {
 	// ProxyType Managed proxy on the server. Traefik only in P0 (§27.9); `none` for a server without inbound traffic.
 	ProxyType         *ServerCreateProxyType `json:"proxy_type,omitempty"`
 	SshTimeoutSeconds *int                   `json:"ssh_timeout_seconds,omitempty"`
+
+	// UseSudo Escalate every remote command through non-interactive `sudo -n` (ADR-076) — the non-root contract of §3.1. Requires a passwordless sudoers entry for the SSH user (`NOPASSWD: ALL`): the connection is authenticated with an SSH key, so there is no password to type when sudo prompts. Pointless for root. The interactive server terminal is never escalated.
+	UseSudo *bool `json:"use_sudo,omitempty"`
 
 	// User SSH user (experimental non-root, requires sudo NOPASSWD, §3.1).
 	User *string `json:"user,omitempty"`
@@ -5208,7 +5571,7 @@ type ServerResource struct {
 // ServerResourceType Resource type (one-click services will arrive in P2).
 type ServerResourceType string
 
-// ServerUpdate Partial update. Changing `host`, `port`, `user` or `private_key_uuid` moves the server back to `pending` (revalidation required).
+// ServerUpdate Partial update. Changing `host`, `port`, `user`, `use_sudo` or `private_key_uuid` moves the server back to `pending` (revalidation required).
 type ServerUpdate struct {
 	// CleanupCron Cron schedule of the cleanup (§3.7); NULL = no cron.
 	CleanupCron *string `json:"cleanup_cron,omitempty"`
@@ -5227,7 +5590,10 @@ type ServerUpdate struct {
 	Description         *string `json:"description,omitempty"`
 
 	// DnsCredentialUuid DNS-01 credential used for this server's wildcards (amendment #21). Optional even with a `wildcard_domain` (amendment): without a credential, the wildcard is only a naming template and each assigned host receives its own individual certificate via HTTP-01 (proxy-contract §7.2) — hosts publicly reachable on the required HTTP port, CA issuance limits per host. With a credential, a single wildcard certificate is issued via DNS-01.
-	DnsCredentialUuid *string                `json:"dns_credential_uuid,omitempty"`
+	DnsCredentialUuid *string `json:"dns_credential_uuid,omitempty"`
+
+	// EdgeServerUuid Server that answers this server's public routes (ADR-077). An empty string clears it (the server serves its own routes again). Changing it re-renders the server's routing and converges its proxy, without revalidating SSH.
+	EdgeServerUuid    *string                `json:"edge_server_uuid,omitempty"`
 	Host              *string                `json:"host,omitempty"`
 	IsBuildServer     *bool                  `json:"is_build_server,omitempty"`
 	Name              *string                `json:"name,omitempty"`
@@ -5237,8 +5603,11 @@ type ServerUpdate struct {
 	ProxyHttpsPort    *int                   `json:"proxy_https_port,omitempty"`
 	ProxyType         *ServerUpdateProxyType `json:"proxy_type,omitempty"`
 	SshTimeoutSeconds *int                   `json:"ssh_timeout_seconds,omitempty"`
-	User              *string                `json:"user,omitempty"`
-	WildcardDomain    *string                `json:"wildcard_domain,omitempty"`
+
+	// UseSudo Escalate every remote command through non-interactive `sudo -n` (ADR-076); requires a passwordless sudoers entry for the SSH user. Changing it triggers revalidation.
+	UseSudo        *bool   `json:"use_sudo,omitempty"`
+	User           *string `json:"user,omitempty"`
+	WildcardDomain *string `json:"wildcard_domain,omitempty"`
 }
 
 // ServerUpdateProxyType defines model for ServerUpdate.ProxyType.
@@ -5773,6 +6142,9 @@ type LastEventId = string
 
 // Limit defines model for Limit.
 type Limit = int
+
+// ModelUuid defines model for ModelUuid.
+type ModelUuid = string
 
 // OauthProviderName defines model for OauthProviderName.
 type OauthProviderName string
@@ -6310,6 +6682,65 @@ type RetryJobParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// ListModelsParams defines parameters for ListModels.
+type ListModelsParams struct {
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items per page (1 to 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateModelParams defines parameters for CreateModel.
+type CreateModelParams struct {
+	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ParseModelCommandJSONBody defines parameters for ParseModelCommand.
+type ParseModelCommandJSONBody struct {
+	Command string `json:"command"`
+}
+
+// SearchModelHubParams defines parameters for SearchModelHub.
+type SearchModelHubParams struct {
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+}
+
+// UpdateModelParams defines parameters for UpdateModel.
+type UpdateModelParams struct {
+	// IfMatch Expected optimistic version of the resource (value of the `ETag` header of the last `GET`). Mismatch → `409` (`version_conflict`) with the current version in `details`.
+	IfMatch IfMatch `json:"If-Match"`
+}
+
+// GetModelCommandParams defines parameters for GetModelCommand.
+type GetModelCommandParams struct {
+	Reveal *bool `form:"reveal,omitempty" json:"reveal,omitempty"`
+}
+
+// ListModelEnvsParams defines parameters for ListModelEnvs.
+type ListModelEnvsParams struct {
+	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of items per page (1 to 100).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetModelLogsParams defines parameters for GetModelLogs.
+type GetModelLogsParams struct {
+	Lines *int `form:"lines,omitempty" json:"lines,omitempty"`
+}
+
+// StartModelJSONBody defines parameters for StartModel.
+type StartModelJSONBody struct {
+	// Force Start alongside the running models despite the declared fractions not fitting. The operator takes the outcome — at worst an out-of-memory failure at load time.
+	Force *bool `json:"force,omitempty"`
+
+	// Swap Stop the running models of the same server first, inside the same job.
+	Swap *bool `json:"swap,omitempty"`
+}
+
 // ListNotificationChannelsParams defines parameters for ListNotificationChannels.
 type ListNotificationChannelsParams struct {
 	// Cursor Opaque pagination cursor, from `next_cursor` of the previous page.
@@ -6521,6 +6952,18 @@ type ListServerCertificatesParams struct {
 type RunServerCleanupParams struct {
 	// IdempotencyKey Idempotency key (§24.1). Replaying the same key with an identical body returns the original response; same key with a different body → `409` (`idempotency_conflict`). Kept for at least 24 h.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// DeleteServerHFCacheParams defines parameters for DeleteServerHFCache.
+type DeleteServerHFCacheParams struct {
+	ModelId *string `form:"model_id,omitempty" json:"model_id,omitempty"`
+	All     *bool   `form:"all,omitempty" json:"all,omitempty"`
+}
+
+// SetServerHFTokenJSONBody defines parameters for SetServerHFToken.
+type SetServerHFTokenJSONBody struct {
+	// Token The HF token; empty clears the stored one.
+	Token string `json:"token"`
 }
 
 // GetProxyLogsParams defines parameters for GetProxyLogs.
@@ -6921,6 +7364,24 @@ type UpdateIngressEndpointJSONRequestBody = IngressEndpointUpdate
 // ForgetJobJSONRequestBody defines body for ForgetJob for application/json ContentType.
 type ForgetJobJSONRequestBody = JobForgetRequest
 
+// CreateModelJSONRequestBody defines body for CreateModel for application/json ContentType.
+type CreateModelJSONRequestBody = ModelCreate
+
+// ParseModelCommandJSONRequestBody defines body for ParseModelCommand for application/json ContentType.
+type ParseModelCommandJSONRequestBody ParseModelCommandJSONBody
+
+// PreviewModelCommandJSONRequestBody defines body for PreviewModelCommand for application/json ContentType.
+type PreviewModelCommandJSONRequestBody = ModelCommandPreviewRequest
+
+// UpdateModelJSONRequestBody defines body for UpdateModel for application/json ContentType.
+type UpdateModelJSONRequestBody = ModelUpdate
+
+// CreateModelEnvJSONRequestBody defines body for CreateModelEnv for application/json ContentType.
+type CreateModelEnvJSONRequestBody = EnvironmentVariableCreate
+
+// StartModelJSONRequestBody defines body for StartModel for application/json ContentType.
+type StartModelJSONRequestBody StartModelJSONBody
+
 // CreateNotificationChannelJSONRequestBody defines body for CreateNotificationChannel for application/json ContentType.
 type CreateNotificationChannelJSONRequestBody = NotificationChannelCreate
 
@@ -6971,6 +7432,9 @@ type CreateServerJSONRequestBody = ServerCreate
 
 // UpdateServerJSONRequestBody defines body for UpdateServer for application/json ContentType.
 type UpdateServerJSONRequestBody = ServerUpdate
+
+// SetServerHFTokenJSONRequestBody defines body for SetServerHFToken for application/json ContentType.
+type SetServerHFTokenJSONRequestBody SetServerHFTokenJSONBody
 
 // ProxyLifecycleJSONRequestBody defines body for ProxyLifecycle for application/json ContentType.
 type ProxyLifecycleJSONRequestBody = ProxyLifecycleRequest
@@ -7474,12 +7938,66 @@ type ServerInterface interface {
 	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
+	// Cancel a job
+	// (POST /jobs/{job_uuid}/cancel)
+	CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
 	// Forget a dead-letter job
 	// (POST /jobs/{job_uuid}/forget)
 	ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid)
 	// Retry a dead-letter job
 	// (POST /jobs/{job_uuid}/retry)
 	RetryJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid, params RetryJobParams)
+	// List models (team-wide)
+	// (GET /models)
+	ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams)
+	// Create a model
+	// (POST /models)
+	CreateModel(w http.ResponseWriter, r *http.Request, params CreateModelParams)
+	// Parse a serve command into a configuration
+	// (POST /models/parse-command)
+	ParseModelCommand(w http.ResponseWriter, r *http.Request)
+	// Render a configuration into its serve command
+	// (POST /models/preview-command)
+	PreviewModelCommand(w http.ResponseWriter, r *http.Request)
+	// Search the Hugging Face Hub
+	// (GET /models/search)
+	SearchModelHub(w http.ResponseWriter, r *http.Request, params SearchModelHubParams)
+	// Delete a model
+	// (DELETE /models/{model_uuid})
+	DeleteModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// Model detail
+	// (GET /models/{model_uuid})
+	GetModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// Update a model
+	// (PATCH /models/{model_uuid})
+	UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params UpdateModelParams)
+	// The rendered serve command
+	// (GET /models/{model_uuid}/command)
+	GetModelCommand(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelCommandParams)
+	// The endpoint API key
+	// (GET /models/{model_uuid}/credentials)
+	GetModelCredentials(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// List the model's environment variables
+	// (GET /models/{model_uuid}/envs)
+	ListModelEnvs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params ListModelEnvsParams)
+	// Add an environment variable to the model
+	// (POST /models/{model_uuid}/envs)
+	CreateModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// Delete an environment variable of the model
+	// (DELETE /models/{model_uuid}/envs/{env_uuid})
+	DeleteModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, envUuid EnvUuid)
+	// The model container's runtime logs
+	// (GET /models/{model_uuid}/logs)
+	GetModelLogs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelLogsParams)
+	// Restart a model
+	// (POST /models/{model_uuid}/restart)
+	RestartModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// Start a model
+	// (POST /models/{model_uuid}/start)
+	StartModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
+	// Stop a model
+	// (POST /models/{model_uuid}/stop)
+	StopModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid)
 	// List notification channels
 	// (GET /notification-channels)
 	ListNotificationChannels(w http.ResponseWriter, r *http.Request, params ListNotificationChannelsParams)
@@ -7645,6 +8163,15 @@ type ServerInterface interface {
 	// List the domains served by a server
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
+	// Delete one model's weights, or the whole cache
+	// (DELETE /servers/{server_uuid}/hf-cache)
+	DeleteServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params DeleteServerHFCacheParams)
+	// The server's Hugging Face weights cache
+	// (GET /servers/{server_uuid}/hf-cache)
+	ListServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
+	// Set the server's Hugging Face token
+	// (PUT /servers/{server_uuid}/hf-token)
+	SetServerHFToken(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid)
 	// Logs of a server's proxy
 	// (GET /servers/{server_uuid}/proxy/logs)
 	GetProxyLogs(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params GetProxyLogsParams)
@@ -8503,6 +9030,12 @@ func (_ Unimplemented) GetJob(w http.ResponseWriter, r *http.Request, jobUuid Jo
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Cancel a job
+// (POST /jobs/{job_uuid}/cancel)
+func (_ Unimplemented) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Forget a dead-letter job
 // (POST /jobs/{job_uuid}/forget)
 func (_ Unimplemented) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
@@ -8512,6 +9045,108 @@ func (_ Unimplemented) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid
 // Retry a dead-letter job
 // (POST /jobs/{job_uuid}/retry)
 func (_ Unimplemented) RetryJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid, params RetryJobParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List models (team-wide)
+// (GET /models)
+func (_ Unimplemented) ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a model
+// (POST /models)
+func (_ Unimplemented) CreateModel(w http.ResponseWriter, r *http.Request, params CreateModelParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Parse a serve command into a configuration
+// (POST /models/parse-command)
+func (_ Unimplemented) ParseModelCommand(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Render a configuration into its serve command
+// (POST /models/preview-command)
+func (_ Unimplemented) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Search the Hugging Face Hub
+// (GET /models/search)
+func (_ Unimplemented) SearchModelHub(w http.ResponseWriter, r *http.Request, params SearchModelHubParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a model
+// (DELETE /models/{model_uuid})
+func (_ Unimplemented) DeleteModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Model detail
+// (GET /models/{model_uuid})
+func (_ Unimplemented) GetModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Update a model
+// (PATCH /models/{model_uuid})
+func (_ Unimplemented) UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params UpdateModelParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The rendered serve command
+// (GET /models/{model_uuid}/command)
+func (_ Unimplemented) GetModelCommand(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelCommandParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The endpoint API key
+// (GET /models/{model_uuid}/credentials)
+func (_ Unimplemented) GetModelCredentials(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the model's environment variables
+// (GET /models/{model_uuid}/envs)
+func (_ Unimplemented) ListModelEnvs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params ListModelEnvsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add an environment variable to the model
+// (POST /models/{model_uuid}/envs)
+func (_ Unimplemented) CreateModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete an environment variable of the model
+// (DELETE /models/{model_uuid}/envs/{env_uuid})
+func (_ Unimplemented) DeleteModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, envUuid EnvUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The model container's runtime logs
+// (GET /models/{model_uuid}/logs)
+func (_ Unimplemented) GetModelLogs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelLogsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Restart a model
+// (POST /models/{model_uuid}/restart)
+func (_ Unimplemented) RestartModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start a model
+// (POST /models/{model_uuid}/start)
+func (_ Unimplemented) StartModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stop a model
+// (POST /models/{model_uuid}/stop)
+func (_ Unimplemented) StopModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -8842,6 +9477,24 @@ func (_ Unimplemented) RunServerCleanup(w http.ResponseWriter, r *http.Request, 
 // List the domains served by a server
 // (GET /servers/{server_uuid}/domains)
 func (_ Unimplemented) ListServerDomains(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete one model's weights, or the whole cache
+// (DELETE /servers/{server_uuid}/hf-cache)
+func (_ Unimplemented) DeleteServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params DeleteServerHFCacheParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The server's Hugging Face weights cache
+// (GET /servers/{server_uuid}/hf-cache)
+func (_ Unimplemented) ListServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Set the server's Hugging Face token
+// (PUT /servers/{server_uuid}/hf-token)
+func (_ Unimplemented) SetServerHFToken(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -14085,6 +14738,38 @@ func (siw *ServerInterfaceWrapper) GetJob(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// CancelJob operation middleware
+func (siw *ServerInterfaceWrapper) CancelJob(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "job_uuid" -------------
+	var jobUuid JobUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "job_uuid", chi.URLParam(r, "job_uuid"), &jobUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "job_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CancelJob(w, r, jobUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ForgetJob operation middleware
 func (siw *ServerInterfaceWrapper) ForgetJob(w http.ResponseWriter, r *http.Request) {
 
@@ -14164,6 +14849,666 @@ func (siw *ServerInterfaceWrapper) RetryJob(w http.ResponseWriter, r *http.Reque
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.RetryJob(w, r, jobUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListModels operation middleware
+func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListModelsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModels(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateModel operation middleware
+func (siw *ServerInterfaceWrapper) CreateModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateModelParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateModel(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ParseModelCommand operation middleware
+func (siw *ServerInterfaceWrapper) ParseModelCommand(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ParseModelCommand(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewModelCommand operation middleware
+func (siw *ServerInterfaceWrapper) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewModelCommand(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SearchModelHub operation middleware
+func (siw *ServerInterfaceWrapper) SearchModelHub(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchModelHubParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SearchModelHub(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteModel operation middleware
+func (siw *ServerInterfaceWrapper) DeleteModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteModel(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetModel operation middleware
+func (siw *ServerInterfaceWrapper) GetModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetModel(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateModel operation middleware
+func (siw *ServerInterfaceWrapper) UpdateModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateModelParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = IfMatch
+
+	} else {
+		err := fmt.Errorf("Header parameter If-Match is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "If-Match", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateModel(w, r, modelUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetModelCommand operation middleware
+func (siw *ServerInterfaceWrapper) GetModelCommand(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetModelCommandParams
+
+	// ------------- Optional query parameter "reveal" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "reveal", r.URL.Query(), &params.Reveal, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "reveal"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "reveal", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetModelCommand(w, r, modelUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetModelCredentials operation middleware
+func (siw *ServerInterfaceWrapper) GetModelCredentials(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetModelCredentials(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListModelEnvs operation middleware
+func (siw *ServerInterfaceWrapper) ListModelEnvs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListModelEnvsParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModelEnvs(w, r, modelUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateModelEnv operation middleware
+func (siw *ServerInterfaceWrapper) CreateModelEnv(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateModelEnv(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteModelEnv operation middleware
+func (siw *ServerInterfaceWrapper) DeleteModelEnv(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "env_uuid" -------------
+	var envUuid EnvUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "env_uuid", chi.URLParam(r, "env_uuid"), &envUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "env_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteModelEnv(w, r, modelUuid, envUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetModelLogs operation middleware
+func (siw *ServerInterfaceWrapper) GetModelLogs(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetModelLogsParams
+
+	// ------------- Optional query parameter "lines" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "lines", r.URL.Query(), &params.Lines, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "lines"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "lines", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetModelLogs(w, r, modelUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RestartModel operation middleware
+func (siw *ServerInterfaceWrapper) RestartModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RestartModel(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartModel operation middleware
+func (siw *ServerInterfaceWrapper) StartModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartModel(w, r, modelUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopModel operation middleware
+func (siw *ServerInterfaceWrapper) StopModel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "model_uuid" -------------
+	var modelUuid ModelUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "model_uuid", chi.URLParam(r, "model_uuid"), &modelUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopModel(w, r, modelUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16625,6 +17970,131 @@ func (siw *ServerInterfaceWrapper) ListServerDomains(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListServerDomains(w, r, serverUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteServerHFCache operation middleware
+func (siw *ServerInterfaceWrapper) DeleteServerHFCache(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteServerHFCacheParams
+
+	// ------------- Optional query parameter "model_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "model_id", r.URL.Query(), &params.ModelId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "model_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "model_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "all" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "all", r.URL.Query(), &params.All, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "all"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "all", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteServerHFCache(w, r, serverUuid, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListServerHFCache operation middleware
+func (siw *ServerInterfaceWrapper) ListServerHFCache(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListServerHFCache(w, r, serverUuid)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetServerHFToken operation middleware
+func (siw *ServerInterfaceWrapper) SetServerHFToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "server_uuid" -------------
+	var serverUuid ServerUuid
+
+	err = runtime.BindStyledParameterWithOptions("simple", "server_uuid", chi.URLParam(r, "server_uuid"), &serverUuid, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "server_uuid", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetServerHFToken(w, r, serverUuid)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -20611,10 +22081,64 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/jobs/{job_uuid}", wrapper.GetJob)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/jobs/{job_uuid}/cancel", wrapper.CancelJob)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/jobs/{job_uuid}/forget", wrapper.ForgetJob)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/jobs/{job_uuid}/retry", wrapper.RetryJob)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models", wrapper.ListModels)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models", wrapper.CreateModel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/parse-command", wrapper.ParseModelCommand)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/preview-command", wrapper.PreviewModelCommand)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/search", wrapper.SearchModelHub)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/models/{model_uuid}", wrapper.DeleteModel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/{model_uuid}", wrapper.GetModel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/models/{model_uuid}", wrapper.UpdateModel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/{model_uuid}/command", wrapper.GetModelCommand)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/{model_uuid}/credentials", wrapper.GetModelCredentials)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/{model_uuid}/envs", wrapper.ListModelEnvs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/{model_uuid}/envs", wrapper.CreateModelEnv)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/models/{model_uuid}/envs/{env_uuid}", wrapper.DeleteModelEnv)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/models/{model_uuid}/logs", wrapper.GetModelLogs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/{model_uuid}/restart", wrapper.RestartModel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/{model_uuid}/start", wrapper.StartModel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/models/{model_uuid}/stop", wrapper.StopModel)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/notification-channels", wrapper.ListNotificationChannels)
@@ -20780,6 +22304,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/servers/{server_uuid}/domains", wrapper.ListServerDomains)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/servers/{server_uuid}/hf-cache", wrapper.DeleteServerHFCache)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/servers/{server_uuid}/hf-cache", wrapper.ListServerHFCache)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/servers/{server_uuid}/hf-token", wrapper.SetServerHFToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/servers/{server_uuid}/proxy/logs", wrapper.GetProxyLogs)
@@ -30658,6 +32191,115 @@ func (response GetJob429JSONResponse) VisitGetJobResponse(w http.ResponseWriter)
 	return err
 }
 
+type CancelJobRequestObject struct {
+	JobUuid JobUuid `json:"job_uuid"`
+}
+
+type CancelJobResponseObject interface {
+	VisitCancelJobResponse(w http.ResponseWriter) error
+}
+
+type CancelJob200JSONResponse Job
+
+func (response CancelJob200JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob202JSONResponse Job
+
+func (response CancelJob202JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CancelJob401JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CancelJob403JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CancelJob404JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CancelJob409JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CancelJob429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CancelJob429JSONResponse) VisitCancelJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ForgetJobRequestObject struct {
 	JobUuid JobUuid `json:"job_uuid"`
 	Body    *ForgetJobJSONRequestBody
@@ -30850,6 +32492,1524 @@ func (response RetryJob409JSONResponse) VisitRetryJobResponse(w http.ResponseWri
 type RetryJob429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response RetryJob429JSONResponse) VisitRetryJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelsRequestObject struct {
+	Params ListModelsParams
+}
+
+type ListModelsResponseObject interface {
+	VisitListModelsResponse(w http.ResponseWriter) error
+}
+
+type ListModels200JSONResponse struct {
+	Data []Model `json:"data"`
+
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListModels200JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModels400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ListModels400JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModels401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListModels401JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModels429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListModels429JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelRequestObject struct {
+	Params CreateModelParams
+	Body   *CreateModelJSONRequestBody
+}
+
+type CreateModelResponseObject interface {
+	VisitCreateModelResponse(w http.ResponseWriter) error
+}
+
+type CreateModel201ResponseHeaders struct {
+	ETag *string
+}
+
+type CreateModel201JSONResponse struct {
+	Body    Model
+	Headers CreateModel201ResponseHeaders
+}
+
+func (response CreateModel201JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModel400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateModel400JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateModel401JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateModel403JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateModel404JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModel409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateModel409JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModel422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreateModel422JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModel429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateModel429JSONResponse) VisitCreateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ParseModelCommandRequestObject struct {
+	Body *ParseModelCommandJSONRequestBody
+}
+
+type ParseModelCommandResponseObject interface {
+	VisitParseModelCommandResponse(w http.ResponseWriter) error
+}
+
+type ParseModelCommand200JSONResponse ModelParseResult
+
+func (response ParseModelCommand200JSONResponse) VisitParseModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ParseModelCommand400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response ParseModelCommand400JSONResponse) VisitParseModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ParseModelCommand401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ParseModelCommand401JSONResponse) VisitParseModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ParseModelCommand422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response ParseModelCommand422JSONResponse) VisitParseModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ParseModelCommand429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ParseModelCommand429JSONResponse) VisitParseModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommandRequestObject struct {
+	Body *PreviewModelCommandJSONRequestBody
+}
+
+type PreviewModelCommandResponseObject interface {
+	VisitPreviewModelCommandResponse(w http.ResponseWriter) error
+}
+
+type PreviewModelCommand200JSONResponse ModelCommand
+
+func (response PreviewModelCommand200JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response PreviewModelCommand400JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response PreviewModelCommand401JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response PreviewModelCommand422JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewModelCommand429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response PreviewModelCommand429JSONResponse) VisitPreviewModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchModelHubRequestObject struct {
+	Params SearchModelHubParams
+}
+
+type SearchModelHubResponseObject interface {
+	VisitSearchModelHubResponse(w http.ResponseWriter) error
+}
+
+type SearchModelHub200JSONResponse struct {
+	Data []HubModel `json:"data"`
+}
+
+func (response SearchModelHub200JSONResponse) VisitSearchModelHubResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchModelHub400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SearchModelHub400JSONResponse) VisitSearchModelHubResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchModelHub401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SearchModelHub401JSONResponse) VisitSearchModelHubResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SearchModelHub429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response SearchModelHub429JSONResponse) VisitSearchModelHubResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+}
+
+type DeleteModelResponseObject interface {
+	VisitDeleteModelResponse(w http.ResponseWriter) error
+}
+
+type DeleteModel202JSONResponse JobAccepted
+
+func (response DeleteModel202JSONResponse) VisitDeleteModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteModel401JSONResponse) VisitDeleteModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteModel403JSONResponse) VisitDeleteModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteModel404JSONResponse) VisitDeleteModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModel429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteModel429JSONResponse) VisitDeleteModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+}
+
+type GetModelResponseObject interface {
+	VisitGetModelResponse(w http.ResponseWriter) error
+}
+
+type GetModel200ResponseHeaders struct {
+	ETag *string
+}
+
+type GetModel200JSONResponse struct {
+	Body    Model
+	Headers GetModel200ResponseHeaders
+}
+
+func (response GetModel200JSONResponse) VisitGetModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetModel401JSONResponse) VisitGetModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetModel404JSONResponse) VisitGetModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModel429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetModel429JSONResponse) VisitGetModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModelRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Params    UpdateModelParams
+	Body      *UpdateModelJSONRequestBody
+}
+
+type UpdateModelResponseObject interface {
+	VisitUpdateModelResponse(w http.ResponseWriter) error
+}
+
+type UpdateModel200ResponseHeaders struct {
+	ETag *string
+}
+
+type UpdateModel200JSONResponse struct {
+	Body    Model
+	Headers UpdateModel200ResponseHeaders
+}
+
+func (response UpdateModel200JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.ETag != nil {
+		w.Header().Set("ETag", fmt.Sprint(*response.Headers.ETag))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModel400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response UpdateModel400JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response UpdateModel401JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response UpdateModel403JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response UpdateModel404JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModel409JSONResponse struct{ ConflictJSONResponse }
+
+func (response UpdateModel409JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModel422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response UpdateModel422JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateModel429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response UpdateModel429JSONResponse) VisitUpdateModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCommandRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Params    GetModelCommandParams
+}
+
+type GetModelCommandResponseObject interface {
+	VisitGetModelCommandResponse(w http.ResponseWriter) error
+}
+
+type GetModelCommand200JSONResponse ModelCommand
+
+func (response GetModelCommand200JSONResponse) VisitGetModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCommand401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetModelCommand401JSONResponse) VisitGetModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCommand403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetModelCommand403JSONResponse) VisitGetModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCommand404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetModelCommand404JSONResponse) VisitGetModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCommand429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetModelCommand429JSONResponse) VisitGetModelCommandResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCredentialsRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+}
+
+type GetModelCredentialsResponseObject interface {
+	VisitGetModelCredentialsResponse(w http.ResponseWriter) error
+}
+
+type GetModelCredentials200JSONResponse ModelCredentials
+
+func (response GetModelCredentials200JSONResponse) VisitGetModelCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCredentials401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetModelCredentials401JSONResponse) VisitGetModelCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCredentials403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response GetModelCredentials403JSONResponse) VisitGetModelCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCredentials404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetModelCredentials404JSONResponse) VisitGetModelCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelCredentials429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetModelCredentials429JSONResponse) VisitGetModelCredentialsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvsRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Params    ListModelEnvsParams
+}
+
+type ListModelEnvsResponseObject interface {
+	VisitListModelEnvsResponse(w http.ResponseWriter) error
+}
+
+type ListModelEnvs200JSONResponse struct {
+	Data []EnvironmentVariable `json:"data"`
+
+	// NextCursor Opaque cursor of the next page — `null` on the last page.
+	NextCursor *NextCursor `json:"next_cursor,omitempty"`
+}
+
+func (response ListModelEnvs200JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListModelEnvs401JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListModelEnvs404JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelEnvs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListModelEnvs429JSONResponse) VisitListModelEnvsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnvRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Body      *CreateModelEnvJSONRequestBody
+}
+
+type CreateModelEnvResponseObject interface {
+	VisitCreateModelEnvResponse(w http.ResponseWriter) error
+}
+
+type CreateModelEnv201JSONResponse EnvironmentVariable
+
+func (response CreateModelEnv201JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response CreateModelEnv400JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response CreateModelEnv401JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response CreateModelEnv403JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response CreateModelEnv404JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv409JSONResponse struct{ ConflictJSONResponse }
+
+func (response CreateModelEnv409JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response CreateModelEnv422JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateModelEnv429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response CreateModelEnv429JSONResponse) VisitCreateModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnvRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	EnvUuid   EnvUuid   `json:"env_uuid"`
+}
+
+type DeleteModelEnvResponseObject interface {
+	VisitDeleteModelEnvResponse(w http.ResponseWriter) error
+}
+
+type DeleteModelEnv204Response struct {
+}
+
+func (response DeleteModelEnv204Response) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteModelEnv401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteModelEnv401JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnv403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteModelEnv403JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnv404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteModelEnv404JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteModelEnv429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteModelEnv429JSONResponse) VisitDeleteModelEnvResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogsRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Params    GetModelLogsParams
+}
+
+type GetModelLogsResponseObject interface {
+	VisitGetModelLogsResponse(w http.ResponseWriter) error
+}
+
+type GetModelLogs200JSONResponse struct {
+	Data []LogLine `json:"data"`
+}
+
+func (response GetModelLogs200JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response GetModelLogs401JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response GetModelLogs404JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs409JSONResponse struct{ ConflictJSONResponse }
+
+func (response GetModelLogs409JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetModelLogs429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response GetModelLogs429JSONResponse) VisitGetModelLogsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartModelRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+}
+
+type RestartModelResponseObject interface {
+	VisitRestartModelResponse(w http.ResponseWriter) error
+}
+
+type RestartModel202JSONResponse JobAccepted
+
+func (response RestartModel202JSONResponse) VisitRestartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartModel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response RestartModel401JSONResponse) VisitRestartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartModel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response RestartModel403JSONResponse) VisitRestartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartModel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response RestartModel404JSONResponse) VisitRestartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RestartModel429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response RestartModel429JSONResponse) VisitRestartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartModelRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+	Body      *StartModelJSONRequestBody
+}
+
+type StartModelResponseObject interface {
+	VisitStartModelResponse(w http.ResponseWriter) error
+}
+
+type StartModel202JSONResponse JobAccepted
+
+func (response StartModel202JSONResponse) VisitStartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartModel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StartModel401JSONResponse) VisitStartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartModel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response StartModel403JSONResponse) VisitStartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartModel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StartModel404JSONResponse) VisitStartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartModel409JSONResponse struct{ ConflictJSONResponse }
+
+func (response StartModel409JSONResponse) VisitStartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartModel429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response StartModel429JSONResponse) VisitStartModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopModelRequestObject struct {
+	ModelUuid ModelUuid `json:"model_uuid"`
+}
+
+type StopModelResponseObject interface {
+	VisitStopModelResponse(w http.ResponseWriter) error
+}
+
+type StopModel202JSONResponse JobAccepted
+
+func (response StopModel202JSONResponse) VisitStopModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopModel401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response StopModel401JSONResponse) VisitStopModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopModel403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response StopModel403JSONResponse) VisitStopModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopModel404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response StopModel404JSONResponse) VisitStopModelResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopModel429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response StopModel429JSONResponse) VisitStopModelResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -36092,6 +39252,303 @@ func (response ListServerDomains404JSONResponse) VisitListServerDomainsResponse(
 type ListServerDomains429JSONResponse struct{ TooManyRequestsJSONResponse }
 
 func (response ListServerDomains429JSONResponse) VisitListServerDomainsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCacheRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+	Params     DeleteServerHFCacheParams
+}
+
+type DeleteServerHFCacheResponseObject interface {
+	VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error
+}
+
+type DeleteServerHFCache204Response struct {
+}
+
+func (response DeleteServerHFCache204Response) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteServerHFCache400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response DeleteServerHFCache400JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response DeleteServerHFCache401JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response DeleteServerHFCache403JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response DeleteServerHFCache404JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache409JSONResponse struct{ ConflictJSONResponse }
+
+func (response DeleteServerHFCache409JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache422JSONResponse struct {
+	UnprocessableEntityJSONResponse
+}
+
+func (response DeleteServerHFCache422JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteServerHFCache429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response DeleteServerHFCache429JSONResponse) VisitDeleteServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCacheRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+}
+
+type ListServerHFCacheResponseObject interface {
+	VisitListServerHFCacheResponse(w http.ResponseWriter) error
+}
+
+type ListServerHFCache200JSONResponse struct {
+	Data []struct {
+		ModelId string `json:"model_id"`
+		SizeMb  int    `json:"size_mb"`
+	} `json:"data"`
+	TotalMb int `json:"total_mb"`
+}
+
+func (response ListServerHFCache200JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response ListServerHFCache401JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response ListServerHFCache404JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache409JSONResponse struct{ ConflictJSONResponse }
+
+func (response ListServerHFCache409JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListServerHFCache429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response ListServerHFCache429JSONResponse) VisitListServerHFCacheResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFTokenRequestObject struct {
+	ServerUuid ServerUuid `json:"server_uuid"`
+	Body       *SetServerHFTokenJSONRequestBody
+}
+
+type SetServerHFTokenResponseObject interface {
+	VisitSetServerHFTokenResponse(w http.ResponseWriter) error
+}
+
+type SetServerHFToken204Response struct {
+}
+
+func (response SetServerHFToken204Response) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type SetServerHFToken400JSONResponse struct{ BadRequestJSONResponse }
+
+func (response SetServerHFToken400JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken401JSONResponse struct{ UnauthorizedJSONResponse }
+
+func (response SetServerHFToken401JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken403JSONResponse struct{ ForbiddenJSONResponse }
+
+func (response SetServerHFToken403JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken404JSONResponse struct{ NotFoundJSONResponse }
+
+func (response SetServerHFToken404JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetServerHFToken429JSONResponse struct{ TooManyRequestsJSONResponse }
+
+func (response SetServerHFToken429JSONResponse) VisitSetServerHFTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -43662,12 +47119,66 @@ type StrictServerInterface interface {
 	// Track an asynchronous operation
 	// (GET /jobs/{job_uuid})
 	GetJob(ctx context.Context, request GetJobRequestObject) (GetJobResponseObject, error)
+	// Cancel a job
+	// (POST /jobs/{job_uuid}/cancel)
+	CancelJob(ctx context.Context, request CancelJobRequestObject) (CancelJobResponseObject, error)
 	// Forget a dead-letter job
 	// (POST /jobs/{job_uuid}/forget)
 	ForgetJob(ctx context.Context, request ForgetJobRequestObject) (ForgetJobResponseObject, error)
 	// Retry a dead-letter job
 	// (POST /jobs/{job_uuid}/retry)
 	RetryJob(ctx context.Context, request RetryJobRequestObject) (RetryJobResponseObject, error)
+	// List models (team-wide)
+	// (GET /models)
+	ListModels(ctx context.Context, request ListModelsRequestObject) (ListModelsResponseObject, error)
+	// Create a model
+	// (POST /models)
+	CreateModel(ctx context.Context, request CreateModelRequestObject) (CreateModelResponseObject, error)
+	// Parse a serve command into a configuration
+	// (POST /models/parse-command)
+	ParseModelCommand(ctx context.Context, request ParseModelCommandRequestObject) (ParseModelCommandResponseObject, error)
+	// Render a configuration into its serve command
+	// (POST /models/preview-command)
+	PreviewModelCommand(ctx context.Context, request PreviewModelCommandRequestObject) (PreviewModelCommandResponseObject, error)
+	// Search the Hugging Face Hub
+	// (GET /models/search)
+	SearchModelHub(ctx context.Context, request SearchModelHubRequestObject) (SearchModelHubResponseObject, error)
+	// Delete a model
+	// (DELETE /models/{model_uuid})
+	DeleteModel(ctx context.Context, request DeleteModelRequestObject) (DeleteModelResponseObject, error)
+	// Model detail
+	// (GET /models/{model_uuid})
+	GetModel(ctx context.Context, request GetModelRequestObject) (GetModelResponseObject, error)
+	// Update a model
+	// (PATCH /models/{model_uuid})
+	UpdateModel(ctx context.Context, request UpdateModelRequestObject) (UpdateModelResponseObject, error)
+	// The rendered serve command
+	// (GET /models/{model_uuid}/command)
+	GetModelCommand(ctx context.Context, request GetModelCommandRequestObject) (GetModelCommandResponseObject, error)
+	// The endpoint API key
+	// (GET /models/{model_uuid}/credentials)
+	GetModelCredentials(ctx context.Context, request GetModelCredentialsRequestObject) (GetModelCredentialsResponseObject, error)
+	// List the model's environment variables
+	// (GET /models/{model_uuid}/envs)
+	ListModelEnvs(ctx context.Context, request ListModelEnvsRequestObject) (ListModelEnvsResponseObject, error)
+	// Add an environment variable to the model
+	// (POST /models/{model_uuid}/envs)
+	CreateModelEnv(ctx context.Context, request CreateModelEnvRequestObject) (CreateModelEnvResponseObject, error)
+	// Delete an environment variable of the model
+	// (DELETE /models/{model_uuid}/envs/{env_uuid})
+	DeleteModelEnv(ctx context.Context, request DeleteModelEnvRequestObject) (DeleteModelEnvResponseObject, error)
+	// The model container's runtime logs
+	// (GET /models/{model_uuid}/logs)
+	GetModelLogs(ctx context.Context, request GetModelLogsRequestObject) (GetModelLogsResponseObject, error)
+	// Restart a model
+	// (POST /models/{model_uuid}/restart)
+	RestartModel(ctx context.Context, request RestartModelRequestObject) (RestartModelResponseObject, error)
+	// Start a model
+	// (POST /models/{model_uuid}/start)
+	StartModel(ctx context.Context, request StartModelRequestObject) (StartModelResponseObject, error)
+	// Stop a model
+	// (POST /models/{model_uuid}/stop)
+	StopModel(ctx context.Context, request StopModelRequestObject) (StopModelResponseObject, error)
 	// List notification channels
 	// (GET /notification-channels)
 	ListNotificationChannels(ctx context.Context, request ListNotificationChannelsRequestObject) (ListNotificationChannelsResponseObject, error)
@@ -43833,6 +47344,15 @@ type StrictServerInterface interface {
 	// List the domains served by a server
 	// (GET /servers/{server_uuid}/domains)
 	ListServerDomains(ctx context.Context, request ListServerDomainsRequestObject) (ListServerDomainsResponseObject, error)
+	// Delete one model's weights, or the whole cache
+	// (DELETE /servers/{server_uuid}/hf-cache)
+	DeleteServerHFCache(ctx context.Context, request DeleteServerHFCacheRequestObject) (DeleteServerHFCacheResponseObject, error)
+	// The server's Hugging Face weights cache
+	// (GET /servers/{server_uuid}/hf-cache)
+	ListServerHFCache(ctx context.Context, request ListServerHFCacheRequestObject) (ListServerHFCacheResponseObject, error)
+	// Set the server's Hugging Face token
+	// (PUT /servers/{server_uuid}/hf-token)
+	SetServerHFToken(ctx context.Context, request SetServerHFTokenRequestObject) (SetServerHFTokenResponseObject, error)
 	// Logs of a server's proxy
 	// (GET /servers/{server_uuid}/proxy/logs)
 	GetProxyLogs(ctx context.Context, request GetProxyLogsRequestObject) (GetProxyLogsResponseObject, error)
@@ -47035,6 +50555,32 @@ func (sh *strictHandler) GetJob(w http.ResponseWriter, r *http.Request, jobUuid 
 	}
 }
 
+// CancelJob operation middleware
+func (sh *strictHandler) CancelJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
+	var request CancelJobRequestObject
+
+	request.JobUuid = jobUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CancelJob(ctx, request.(CancelJobRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CancelJob")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CancelJobResponseObject); ok {
+		if err := validResponse.VisitCancelJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ForgetJob operation middleware
 func (sh *strictHandler) ForgetJob(w http.ResponseWriter, r *http.Request, jobUuid JobUuid) {
 	var request ForgetJobRequestObject
@@ -47091,6 +50637,494 @@ func (sh *strictHandler) RetryJob(w http.ResponseWriter, r *http.Request, jobUui
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(RetryJobResponseObject); ok {
 		if err := validResponse.VisitRetryJobResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListModels operation middleware
+func (sh *strictHandler) ListModels(w http.ResponseWriter, r *http.Request, params ListModelsParams) {
+	var request ListModelsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListModels(ctx, request.(ListModelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListModels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListModelsResponseObject); ok {
+		if err := validResponse.VisitListModelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateModel operation middleware
+func (sh *strictHandler) CreateModel(w http.ResponseWriter, r *http.Request, params CreateModelParams) {
+	var request CreateModelRequestObject
+
+	request.Params = params
+
+	var body CreateModelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateModel(ctx, request.(CreateModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateModelResponseObject); ok {
+		if err := validResponse.VisitCreateModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ParseModelCommand operation middleware
+func (sh *strictHandler) ParseModelCommand(w http.ResponseWriter, r *http.Request) {
+	var request ParseModelCommandRequestObject
+
+	var body ParseModelCommandJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ParseModelCommand(ctx, request.(ParseModelCommandRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ParseModelCommand")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ParseModelCommandResponseObject); ok {
+		if err := validResponse.VisitParseModelCommandResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PreviewModelCommand operation middleware
+func (sh *strictHandler) PreviewModelCommand(w http.ResponseWriter, r *http.Request) {
+	var request PreviewModelCommandRequestObject
+
+	var body PreviewModelCommandJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewModelCommand(ctx, request.(PreviewModelCommandRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewModelCommand")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PreviewModelCommandResponseObject); ok {
+		if err := validResponse.VisitPreviewModelCommandResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SearchModelHub operation middleware
+func (sh *strictHandler) SearchModelHub(w http.ResponseWriter, r *http.Request, params SearchModelHubParams) {
+	var request SearchModelHubRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SearchModelHub(ctx, request.(SearchModelHubRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SearchModelHub")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SearchModelHubResponseObject); ok {
+		if err := validResponse.VisitSearchModelHubResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteModel operation middleware
+func (sh *strictHandler) DeleteModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request DeleteModelRequestObject
+
+	request.ModelUuid = modelUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteModel(ctx, request.(DeleteModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteModelResponseObject); ok {
+		if err := validResponse.VisitDeleteModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetModel operation middleware
+func (sh *strictHandler) GetModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request GetModelRequestObject
+
+	request.ModelUuid = modelUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetModel(ctx, request.(GetModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetModelResponseObject); ok {
+		if err := validResponse.VisitGetModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UpdateModel operation middleware
+func (sh *strictHandler) UpdateModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params UpdateModelParams) {
+	var request UpdateModelRequestObject
+
+	request.ModelUuid = modelUuid
+	request.Params = params
+
+	var body UpdateModelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateModel(ctx, request.(UpdateModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateModelResponseObject); ok {
+		if err := validResponse.VisitUpdateModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetModelCommand operation middleware
+func (sh *strictHandler) GetModelCommand(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelCommandParams) {
+	var request GetModelCommandRequestObject
+
+	request.ModelUuid = modelUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetModelCommand(ctx, request.(GetModelCommandRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetModelCommand")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetModelCommandResponseObject); ok {
+		if err := validResponse.VisitGetModelCommandResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetModelCredentials operation middleware
+func (sh *strictHandler) GetModelCredentials(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request GetModelCredentialsRequestObject
+
+	request.ModelUuid = modelUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetModelCredentials(ctx, request.(GetModelCredentialsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetModelCredentials")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetModelCredentialsResponseObject); ok {
+		if err := validResponse.VisitGetModelCredentialsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListModelEnvs operation middleware
+func (sh *strictHandler) ListModelEnvs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params ListModelEnvsParams) {
+	var request ListModelEnvsRequestObject
+
+	request.ModelUuid = modelUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListModelEnvs(ctx, request.(ListModelEnvsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListModelEnvs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListModelEnvsResponseObject); ok {
+		if err := validResponse.VisitListModelEnvsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateModelEnv operation middleware
+func (sh *strictHandler) CreateModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request CreateModelEnvRequestObject
+
+	request.ModelUuid = modelUuid
+
+	var body CreateModelEnvJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateModelEnv(ctx, request.(CreateModelEnvRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateModelEnv")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateModelEnvResponseObject); ok {
+		if err := validResponse.VisitCreateModelEnvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteModelEnv operation middleware
+func (sh *strictHandler) DeleteModelEnv(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, envUuid EnvUuid) {
+	var request DeleteModelEnvRequestObject
+
+	request.ModelUuid = modelUuid
+	request.EnvUuid = envUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteModelEnv(ctx, request.(DeleteModelEnvRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteModelEnv")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteModelEnvResponseObject); ok {
+		if err := validResponse.VisitDeleteModelEnvResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetModelLogs operation middleware
+func (sh *strictHandler) GetModelLogs(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid, params GetModelLogsParams) {
+	var request GetModelLogsRequestObject
+
+	request.ModelUuid = modelUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetModelLogs(ctx, request.(GetModelLogsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetModelLogs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetModelLogsResponseObject); ok {
+		if err := validResponse.VisitGetModelLogsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RestartModel operation middleware
+func (sh *strictHandler) RestartModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request RestartModelRequestObject
+
+	request.ModelUuid = modelUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RestartModel(ctx, request.(RestartModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RestartModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RestartModelResponseObject); ok {
+		if err := validResponse.VisitRestartModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StartModel operation middleware
+func (sh *strictHandler) StartModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request StartModelRequestObject
+
+	request.ModelUuid = modelUuid
+
+	var body StartModelJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartModel(ctx, request.(StartModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartModelResponseObject); ok {
+		if err := validResponse.VisitStartModelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopModel operation middleware
+func (sh *strictHandler) StopModel(w http.ResponseWriter, r *http.Request, modelUuid ModelUuid) {
+	var request StopModelRequestObject
+
+	request.ModelUuid = modelUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopModel(ctx, request.(StopModelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopModel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopModelResponseObject); ok {
+		if err := validResponse.VisitStopModelResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -48656,6 +52690,92 @@ func (sh *strictHandler) ListServerDomains(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListServerDomainsResponseObject); ok {
 		if err := validResponse.VisitListServerDomainsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteServerHFCache operation middleware
+func (sh *strictHandler) DeleteServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid, params DeleteServerHFCacheParams) {
+	var request DeleteServerHFCacheRequestObject
+
+	request.ServerUuid = serverUuid
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteServerHFCache(ctx, request.(DeleteServerHFCacheRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteServerHFCache")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteServerHFCacheResponseObject); ok {
+		if err := validResponse.VisitDeleteServerHFCacheResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListServerHFCache operation middleware
+func (sh *strictHandler) ListServerHFCache(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	var request ListServerHFCacheRequestObject
+
+	request.ServerUuid = serverUuid
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListServerHFCache(ctx, request.(ListServerHFCacheRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListServerHFCache")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListServerHFCacheResponseObject); ok {
+		if err := validResponse.VisitListServerHFCacheResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetServerHFToken operation middleware
+func (sh *strictHandler) SetServerHFToken(w http.ResponseWriter, r *http.Request, serverUuid ServerUuid) {
+	var request SetServerHFTokenRequestObject
+
+	request.ServerUuid = serverUuid
+
+	var body SetServerHFTokenJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetServerHFToken(ctx, request.(SetServerHFTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetServerHFToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetServerHFTokenResponseObject); ok {
+		if err := validResponse.VisitSetServerHFTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

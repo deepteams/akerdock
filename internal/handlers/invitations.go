@@ -335,7 +335,7 @@ func (a *API) mailInvitation(r *http.Request, email, link string) {
 		return
 	}
 	event := notify.Event{Type: "team.invitation.v1", Resource: link}
-	if err := notify.New().Send(r.Context(), cfg.Kind, c, event); err != nil {
+	if err := notify.NewSystem().Send(r.Context(), cfg.Kind, c, event); err != nil {
 		a.Logger.Warn("the invitation mail could not be sent — the link is still in the API response",
 			"email", email, "error", err)
 	}
