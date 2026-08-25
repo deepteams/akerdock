@@ -64,8 +64,10 @@ type runtime struct {
 
 // runtimes is THE table. The asymmetry between the two omni cells is
 // upstream's: vLLM-Omni is activated by a marker on the same server, while
-// SGLang-Omni is another program entirely (there is no sglang.launch_server
-// in its image).
+// SGLang-Omni is another program entirely (there is no `sglang` CLI in its
+// image). SGLang text is the `sglang serve` CLI upstream now recommends —
+// the pinned image ships it — and the module spelling it replaced
+// (`python3 -m sglang.launch_server`) is still accepted on import.
 var runtimes = map[Engine]map[Modality]runtime{
 	EngineVLLM: {
 		ModalityText: {HumanPrefix: "vllm serve", HealthPath: "/health"},
@@ -73,8 +75,8 @@ var runtimes = map[Engine]map[Modality]runtime{
 	},
 	EngineSGLang: {
 		ModalityText: {
-			Invocation:  []string{"python3", "-m", "sglang.launch_server"},
-			HumanPrefix: "python3 -m sglang.launch_server", HealthPath: "/health",
+			Invocation:  []string{"sglang", "serve"},
+			HumanPrefix: "sglang serve", HealthPath: "/health",
 		},
 		ModalityOmni: {
 			Invocation:  []string{"sgl-omni", "serve"},
@@ -316,8 +318,8 @@ type ParseResult struct {
 }
 
 // Parse turns a pasted command back into a configuration. The invocation
-// prefix (vllm serve, vllm-omni serve, python3 -m sglang.launch_server,
-// sgl-omni serve, the legacy api_server module) decides the runtime when
+// prefix (vllm serve, vllm-omni serve, sglang serve, sgl-omni serve, the
+// legacy api_server and launch_server modules) decides the runtime when
 // present; flag spellings decide the engine otherwise, and the `--omni`
 // marker the modality. Tier-1 spellings land on their typed fields, everything else
 // keeps its order in tier 2, reserved flags drop with a notice.
@@ -439,6 +441,9 @@ func stripInvocation(tokens []string) ([]string, Engine, Modality) {
 		// vLLM-Omni's own CLI: the platform renders the marker form, but the
 		// ecosystem trades in both and a paste must not care.
 		{"vllm-omni serve", EngineVLLM, ModalityOmni},
+		{"sglang serve", EngineSGLang, ModalityText},
+		// The module spelling `sglang serve` replaced: every playbook older
+		// than the CLI still opens with it.
 		{"python3 -m sglang.launch_server", EngineSGLang, ModalityText},
 		{"python -m sglang.launch_server", EngineSGLang, ModalityText},
 		{"sgl-omni serve", EngineSGLang, ModalityOmni},
@@ -463,7 +468,11 @@ func guessEngine(cfg Config) Engine {
 }
 
 // shellSplit tokenizes a command line with POSIX-ish quoting — enough for
-// the commands this ecosystem trades in (no substitution, on purpose).
+// the commands this ecosystem trades in (no substitution, on purpose). A
+// backslash before a newline is a line continuation, as in a shell: the
+// playbooks are pasted one flag per line, and without this rule each
+// continuation became a stray "\n" token — the first of them landing in the
+// model reference.
 func shellSplit(s string) ([]string, error) {
 	var tokens []string
 	var current strings.Builder
@@ -481,6 +490,8 @@ func shellSplit(s string) ([]string, error) {
 			if i >= len(s) {
 				return nil, fmt.Errorf("unbalanced quote in the command")
 			}
+		case c == '\\' && i+1 < len(s) && s[i+1] == '\n':
+			i++
 		case c == '\\' && i+1 < len(s):
 			inToken = true
 			i++

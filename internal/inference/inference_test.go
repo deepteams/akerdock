@@ -53,8 +53,8 @@ func TestContainerCommandContract(t *testing.T) {
 	}
 
 	sgl := ContainerCommand(fullConfig(EngineSGLang), "sk-key")
-	if got := strings.Join(sgl[:3], " "); got != "python3 -m sglang.launch_server" {
-		t.Fatalf("the SGLang container command must be the full invocation, got %q", got)
+	if got := strings.Join(sgl[:2], " "); got != "sglang serve" {
+		t.Fatalf("the SGLang container command must be the full `sglang serve` invocation, got %q", got)
 	}
 	joined = strings.Join(sgl, " ")
 	for _, want := range []string{
@@ -122,7 +122,7 @@ func TestParseForeignForms(t *testing.T) {
 		}
 	})
 
-	t.Run("SGLang docker example, reserved flags dropped with notices", func(t *testing.T) {
+	t.Run("SGLang legacy module spelling still names the engine", func(t *testing.T) {
 		res, err := Parse("python3 -m sglang.launch_server --model-path meta-llama/Llama-3.1-8B-Instruct --host 0.0.0.0 --port 30000")
 		if err != nil {
 			t.Fatal(err)
@@ -177,6 +177,50 @@ func TestParseForeignForms(t *testing.T) {
 
 // Tier-2 hygiene (ADR-080 §1): reserved flags and tier-1 spellings are
 // refused by name, and non-flags never pass as flags.
+// TestParseMultilinePlaybook pins the paste every playbook is written as:
+// one flag per line behind `\` continuations, the modern `sglang serve`
+// opener, boolean flags mixed with valued ones. Continuations used to
+// surface as stray "\n" tokens — the first of them landing in the model
+// reference — so the tier-2 list, its order and the typed fields are all
+// checked against the pasted text.
+func TestParseMultilinePlaybook(t *testing.T) {
+	res, err := Parse("sglang serve \\\n" +
+		"    --trust-remote-code \\\n" +
+		"    --model-path RadixArk/Qwen3.8-27B-NVFP4 \\\n" +
+		"    --kv-cache-dtype fp8_e4m3 \\\n" +
+		"    --mem-fraction-static 0.80 \\\n" +
+		"    --attention-backend flashinfer \\\n" +
+		"    --host 0.0.0.0 \\\n" +
+		"    --port 30000 \\\n" +
+		"    --speculative-algorithm DFLASH \\\n" +
+		"    --speculative-num-draft-tokens 8\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Config.Engine != EngineSGLang || res.Config.Modality != ModalityText ||
+		res.Config.ModelID != "RadixArk/Qwen3.8-27B-NVFP4" || res.Config.MemoryFraction != 0.8 {
+		t.Fatalf("config = %+v", res.Config)
+	}
+	want := []Flag{
+		{Name: "--trust-remote-code"},
+		{Name: "--kv-cache-dtype", Value: "fp8_e4m3"},
+		{Name: "--attention-backend", Value: "flashinfer"},
+		{Name: "--speculative-algorithm", Value: "DFLASH"},
+		{Name: "--speculative-num-draft-tokens", Value: "8"},
+	}
+	if !reflect.DeepEqual(res.Config.Flags, want) {
+		t.Fatalf("flags = %+v, want %+v", res.Config.Flags, want)
+	}
+	if len(res.Notices) != 2 {
+		t.Fatalf("notices = %v, want --host and --port dropped", res.Notices)
+	}
+	// A backslash NOT before a newline still escapes the next character.
+	toks, err := shellSplit(`--served-model-name my\ model`)
+	if err != nil || len(toks) != 2 || toks[1] != "my model" {
+		t.Fatalf("tokens = %q err = %v", toks, err)
+	}
+}
+
 func TestValidateFlags(t *testing.T) {
 	if err := ValidateFlags([]Flag{{Name: "--enable-prefix-caching"}}); err != nil {
 		t.Fatal(err)
@@ -235,7 +279,7 @@ func TestOmniRuntimeContract(t *testing.T) {
 				t.Fatalf("SGLang omni misses its engine's spelling %q:\n%s", want, joined)
 			}
 		}
-		if strings.Contains(joined, "sglang.launch_server") || strings.Contains(joined, OmniMarker) {
+		if strings.HasPrefix(joined, "sglang serve") || strings.Contains(joined, OmniMarker) {
 			t.Fatalf("SGLang omni carries another runtime's invocation:\n%s", joined)
 		}
 	})
@@ -244,7 +288,7 @@ func TestOmniRuntimeContract(t *testing.T) {
 		if got := ContainerCommand(fullConfig(EngineVLLM), ""); strings.Contains(strings.Join(got, " "), OmniMarker) {
 			t.Fatalf("a text model must carry no marker: %v", got)
 		}
-		if got := strings.Join(ContainerCommand(fullConfig(EngineSGLang), "")[:3], " "); got != "python3 -m sglang.launch_server" {
+		if got := strings.Join(ContainerCommand(fullConfig(EngineSGLang), "")[:2], " "); got != "sglang serve" {
 			t.Fatalf("SGLang text invocation drifted: %q", got)
 		}
 	})

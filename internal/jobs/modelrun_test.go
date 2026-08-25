@@ -179,7 +179,7 @@ func TestModelProvisionContainerContract(t *testing.T) {
 		if err := h.provision(context.Background(), rt, row, jobFixtureUUID, 1); err != nil {
 			t.Fatal(err)
 		}
-		if got := strings.Join(config.Cmd[:3], " "); got != "python3 -m sglang.launch_server" {
+		if got := strings.Join(config.Cmd[:2], " "); got != "sglang serve" {
 			t.Fatalf("the SGLang command must be the full invocation, got %q", got)
 		}
 		if host.IpcMode == container.IPCModeHost || host.ShmSize != int64(shm)*1024*1024 {

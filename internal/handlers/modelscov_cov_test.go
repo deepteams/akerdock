@@ -348,7 +348,7 @@ func TestModelscovParseAndSearch(t *testing.T) {
 			`{"engine":"sglang","model_id":"org/m","memory_fraction":0.7,"engine_flags":[{"flag":"--enable-torch-compile"}]}`))
 		rescovWant(t, rec, http.StatusOK)
 		body := rec.Body.String()
-		if !strings.Contains(body, "sglang.launch_server") || !strings.Contains(body, "--mem-fraction-static 0.7") {
+		if !strings.Contains(body, "sglang serve") || !strings.Contains(body, "--mem-fraction-static 0.7") {
 			t.Fatalf("preview = %s", body)
 		}
 		rec = httptest.NewRecorder()

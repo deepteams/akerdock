@@ -3256,7 +3256,7 @@ export interface paths {
         put?: never;
         /**
          * Parse a serve command into a configuration
-         * @description The import half of ADR-080 §3bis: a pasted `vllm serve` / `sglang launch_server` command becomes the two-tier configuration. Reserved flags are dropped with a notice; nothing else is ever silently discarded. Pure function — nothing is persisted.
+         * @description The import half of ADR-080 §3bis: a pasted `vllm serve` / `sglang serve` command becomes the two-tier configuration. Reserved flags are dropped with a notice; nothing else is ever silently discarded. Pure function — nothing is persisted.
          */
         post: operations["parseModelCommand"];
         delete?: never;

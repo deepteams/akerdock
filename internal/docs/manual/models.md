@@ -40,9 +40,10 @@ the **engine flags** list, in order. Platform-managed flags (`--port`, `--api-ke
 
 Two shortcuts speak the ecosystem's language. **Paste a command** from any playbook or blog
 and the form fills itself — managed flags are taken over, each with a notice, and the
-invocation names the runtime (`vllm serve`, `vllm-omni serve`, `python3 -m
-sglang.launch_server`, `sgl-omni serve`). **Show the command** renders the exact line the
-container will run, by the same code that runs it.
+invocation names the runtime (`vllm serve`, `vllm-omni serve`, `sglang serve`,
+`sgl-omni serve`; the older `python3 -m sglang.launch_server` is understood too). A
+multi-line playbook pastes as-is, `\` continuations included. **Show the command** renders
+the exact line the container will run, by the same code that runs it.
 On the model's page the command is shown masked, copy-ready; export → paste back is
 guaranteed to reproduce the same configuration.
 
