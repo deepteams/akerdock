@@ -85,9 +85,11 @@ type Config struct {
 	SchedulerTick time.Duration
 	RetryBase     time.Duration
 	ACMEEmail     string
-	RootEmail     string
-	RootName      string
-	RootPassword  string
+	// ProxyTLS is "letsencrypt" (Traefik requests certificates) or "upstream" (an ALB terminates TLS with ACM).
+	ProxyTLS     string
+	RootEmail    string
+	RootName     string
+	RootPassword string
 	// LocalhostHost/LocalhostUser seed the pre-registered localhost server at
 	// first bootstrap (§6.2); afterwards the server row is authoritative.
 	LocalhostHost     string
@@ -169,6 +171,7 @@ var envKeys = []string{
 	"AKERDOCK_INSTANCE_URL",
 	"AKERDOCK_RELAY_URL",
 	"AKERDOCK_ACME_EMAIL",
+	"AKERDOCK_PROXY_TLS",
 	"AKERDOCK_SCHEDULER_TICK",
 	"AKERDOCK_RETRY_BASE",
 	"AKERDOCK_ROOT_EMAIL",
@@ -189,6 +192,14 @@ var envKeys = []string{
 	"AKERDOCK_TERMINAL_MAX_DURATION",
 	"AKERDOCK_IMAGE",
 	"AKERDOCK_CONFIG_FILE",
+}
+
+// proxyTLSOrDefault returns the proxy TLS mode, letsencrypt when unset.
+func proxyTLSOrDefault(v string) string {
+	if v == "" {
+		return "letsencrypt"
+	}
+	return v
 }
 
 // Load resolves the configuration from vars (the full process environment as
@@ -229,9 +240,14 @@ func Load(vars map[string]string, readFile func(string) ([]byte, error)) (*Confi
 		MasterKey:     get("AKERDOCK_MASTER_KEY"),
 		InstanceFQDN:  get("AKERDOCK_INSTANCE_FQDN"),
 		ACMEEmail:     get("AKERDOCK_ACME_EMAIL"),
+		ProxyTLS:      proxyTLSOrDefault(get("AKERDOCK_PROXY_TLS")),
 		RootEmail:     get("AKERDOCK_ROOT_EMAIL"),
 		RootName:      strings.TrimSpace(get("AKERDOCK_ROOT_NAME")),
 		RootPassword:  get("AKERDOCK_ROOT_PASSWORD"),
+	}
+
+	if cfg.ProxyTLS != "letsencrypt" && cfg.ProxyTLS != "upstream" {
+		errs = append(errs, FieldError{"AKERDOCK_PROXY_TLS", fmt.Sprintf("invalid %q (want letsencrypt or upstream)", cfg.ProxyTLS)})
 	}
 
 	if cfg.DatabaseURL == "" {

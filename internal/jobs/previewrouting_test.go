@@ -10,6 +10,7 @@ import (
 
 	"github.com/deepteams/akerdock/internal/accessroute"
 	"github.com/deepteams/akerdock/internal/compose"
+	"github.com/deepteams/akerdock/internal/proxy"
 	"github.com/deepteams/akerdock/internal/store"
 )
 
@@ -233,5 +234,24 @@ func TestRenderPreviewRoutingFileSSO(t *testing.T) {
 	var parsed map[string]any
 	if err := yaml.Unmarshal([]byte(content), &parsed); err != nil {
 		t.Fatalf("generated routing is not valid YAML: %v\n%s", err, content)
+	}
+}
+
+// Behind an ALB the callback must listen on web without TLS (see proxy.UpstreamTLS).
+func TestRenderPreviewRoutingFileSSOUpstreamTLS(t *testing.T) {
+	proxy.SetUpstreamTLS(true)
+	t.Cleanup(func() { proxy.SetUpstreamTLS(false) })
+	app, preview := previewFixture(t)
+	app.Application.PreviewProtection = store.PreviewProtectionSso
+	content, err := RenderPreviewRoutingFile(app, preview, 7, "", "",
+		"https://manager.example.com/webhooks/previews/forward-auth")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(content, "entryPoints: [web]") {
+		t.Fatalf("upstream authcb must listen on web\n%s", content)
+	}
+	if strings.Contains(content, "certResolver") || strings.Contains(content, "websecure") {
+		t.Fatalf("upstream authcb must not request TLS\n%s", content)
 	}
 }

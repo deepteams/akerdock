@@ -419,6 +419,8 @@ func bootstrapProxy(ctx context.Context, q *store.Queries, kr *envelope.Keyring,
 	}
 	email := ""
 	switch {
+	case proxy.UpstreamTLS():
+		// The ALB holds the certificates: no Let's Encrypt contact is needed.
 	case settings.AcmeEmail != nil && *settings.AcmeEmail != "":
 		email = *settings.AcmeEmail
 	case settings.Fqdn != nil && *settings.Fqdn != "":
