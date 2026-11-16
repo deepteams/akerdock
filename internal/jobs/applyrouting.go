@@ -405,9 +405,13 @@ func injectPreviewSSOCallback(content, previewUUID string, hosts []string, insta
 	for _, h := range hosts {
 		rules = append(rules, "Host(`"+h+"`)")
 	}
+	entryPoint, tlsBlock := "websecure", "      tls:\n        certResolver: http01\n"
+	if proxy.UpstreamTLS() {
+		entryPoint, tlsBlock = "web", ""
+	}
 	router := fmt.Sprintf(
-		"    %s-authcb:\n      entryPoints: [websecure]\n      rule: (%s) && PathPrefix(`/.akerdock/preview-callback`)\n      priority: 1000000\n      service: %s-authcb\n      tls:\n        certResolver: http01\n",
-		previewUUID, strings.Join(rules, " || "), previewUUID)
+		"    %s-authcb:\n      entryPoints: [%s]\n      rule: (%s) && PathPrefix(`/.akerdock/preview-callback`)\n      priority: 1000000\n      service: %s-authcb\n%s",
+		previewUUID, entryPoint, strings.Join(rules, " || "), previewUUID, tlsBlock)
 	service := fmt.Sprintf(
 		"    %s-authcb:\n      loadBalancer:\n        passHostHeader: false\n        servers:\n          - url: %q\n",
 		previewUUID, instanceURL)

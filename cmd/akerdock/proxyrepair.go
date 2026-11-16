@@ -56,6 +56,7 @@ func proxyRepairRun(ctx context.Context, target string) error {
 	if err != nil {
 		return err
 	}
+	proxy.SetUpstreamTLS(cfg.ProxyTLS == "upstream")
 	logger := slog.New(logredact.Wrap(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 
 	// No migration here: a repair converges one container, it does not carry

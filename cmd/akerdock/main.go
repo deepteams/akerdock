@@ -43,6 +43,7 @@ import (
 	"github.com/deepteams/akerdock/internal/mcp"
 	"github.com/deepteams/akerdock/internal/notify"
 	"github.com/deepteams/akerdock/internal/postgres"
+	"github.com/deepteams/akerdock/internal/proxy"
 
 	"github.com/deepteams/akerdock/internal/agent"
 	"github.com/deepteams/akerdock/internal/oidc"
@@ -228,6 +229,7 @@ func serveRun(mode string) int {
 	if cfg.Image == "" {
 		cfg.Image = image
 	}
+	proxy.SetUpstreamTLS(cfg.ProxyTLS == "upstream")
 
 	baseHandler := loggerHandler(cfg)
 	logger := slog.New(logredact.Wrap(baseHandler))

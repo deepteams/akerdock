@@ -487,7 +487,9 @@ func (w *agentScan) reconcile(server store.Server, network string, client remote
 
 func (w *agentScan) close() {
 	for _, c := range w.clients {
-		_ = c.Close()
+		if c != nil {
+			_ = c.Close()
+		}
 	}
 }
 
